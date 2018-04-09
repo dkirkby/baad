@@ -79,22 +79,7 @@ class CoAdder(object):
             Tuple (psf, phi, A) giving this observation's contributions to
             the coadd, tabulated on the internal grid.
         """
-        data = np.asarray(data)
-        edges = np.asarray(edges)
-        ivar = np.asarray(ivar)
-        npixels = len(data)
-        if len(edges) != npixels + 1:
-            raise ValueError('Length of edges and data arrays do not match.')
-        if len(ivar) != npixels:
-            raise ValueError('Length of ivar and data arrays do not match.')
-        if np.any(ivar < 0):
-            raise ValueError('All ivar values must >= 0.')
-        if not np.all(np.diff(edges) > 0):
-            raise ValueError('Pixel edges are not in increasing order.')
-        if edges[0] + self.psf_grid[0] < self.grid[0]:
-            raise ValueError('First edge not inset enough for dispersion.')
-        if edges[-1] + self.psf_grid[-1] > self.grid[-1]:
-            raise ValueError('Last edge not inset enough for dispersion.')
+        npixels, data, edges, ivar = self.check_data(data, edges, ivar)
 
         # Tabulate the support of each pixel i as gp[i].
         psf = np.atleast_1d(psf)
@@ -145,16 +130,12 @@ class CoAdder(object):
         else:
             raise ValueError('Unexpected psf shape.')
 
-        return gp
-
-        # Calculate this observations contributions to phi, A.
+        # Calculate this observation's contributions to phi, A.
         phi = np.zeros_like(self.phi_sum)
         A = np.zeros_like(self.A_sum)
-        M = np.digitize(self.x_grid[:, np.newaxis] + self.x_grid, edges)
-        for p in range(npixels):
-            gp[p] = ((M == p + 1) * psf).sum(axis=1)
-            phi += gp[p] * data[p] * ivar[p]
-            A += np.outer(gp[p], gp[p]) * ivar[p]
+        for i in range(npixels):
+            phi += gp[i] * data[i] * ivar[i]
+            A += np.outer(gp[i], gp[i]) * ivar[i]
         self.phi_sum += phi
         self.A_sum += A
 
@@ -182,3 +163,24 @@ class CoAdder(object):
         assert np.abs(wmid - self.grid[idx]) <= 0.5 * self.grid_scale
         n = (self.n_psf - 1) // 2
         out[idx - n: idx + n + 1] = psf
+
+    def check_data(self, data, edges, ivar):
+        """Perform checks for valid input data.
+        """
+        npixels = len(data)
+        data = np.asarray(data)
+        edges = np.asarray(edges)
+        ivar = np.asarray(ivar)
+        if len(edges) != npixels + 1:
+            raise ValueError('Length of edges and data arrays do not match.')
+        if len(ivar) != npixels:
+            raise ValueError('Length of ivar and data arrays do not match.')
+        if np.any(ivar < 0):
+            raise ValueError('All ivar values must >= 0.')
+        if not np.all(np.diff(edges) > 0):
+            raise ValueError('Pixel edges are not in increasing order.')
+        if edges[0] + self.psf_grid[0] < self.grid[0]:
+            raise ValueError('First edge not inset enough for dispersion.')
+        if edges[-1] + self.psf_grid[-1] > self.grid[-1]:
+            raise ValueError('Last edge not inset enough for dispersion.')
+        return npixels, data, edges, ivar
