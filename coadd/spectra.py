@@ -67,6 +67,8 @@ class CoAdder(object):
               - A array of n dispersions tabulated on a uniform grid centered at
               zero with spacing self.grid_scale that applies to all pixels.
               - A 2D array of shape (N, n) with per-pixel tabulated dispersions.
+            PSF normalization is handled automatically. A tabulated PSF must
+            must be non-negative and RMS values must all be positive.
         convolve_with_pixel : bool
             When True, the PSF represents a delta function response and should
             be convolved over each pixel to calculate the range of true
@@ -114,63 +116,68 @@ class CoAdder(object):
 
         # Calculate the support of each pixel.
         psf = np.atleast_1d(psf)
-        gp = np.zeros((npixels, self.n_grid))
         supports = []
-        if len(psf.shape) == 1:
-            # psf specifies either a single RMS, per-pixel RMS, or a
-            # tabulated psf shared by all pixels.
-            if len(psf) in (1, npixels):
-                # psf specifies either a single RMS or per-pixel RMS values.
-                if np.any(psf <= 0):
-                    raise ValueError('Expected all PSF RMS > 0.')
-                # Calculate extent of clipped PSF for each pixel in grid units.
-                extent = np.ceil(sigma_clip * psf / self.grid_scale).astype(int)
-                r2rms = np.sqrt(2) * psf * np.ones(npixels)
-                # Tabulate clipped PSF with specified RMS value(s).
-                if convolve_with_pixel:
-                    ilo = edge_idx[:-1] - extent
-                    ihi = edge_idx[1:] + extent
-                    if np.any(ilo < 0) or np.any(ihi > self.n_grid):
-                        raise ValueError('Pixels disperse outside grid.')
-                    for i in range(npixels):
-                        wlen = self.grid[ilo[i]:ihi[i]]
-                        supports.append(0.5 * (
-                            scipy.special.erf((edges[i+1] - wlen) / r2rms[i]) -
-                            scipy.special.erf((edges[i] - wlen) / r2rms[i])))
-                else:
-                    ilo = mid_idx - extent
-                    ihi = mid_idx + extent
-                    if np.any(ilo < 0) or np.any(ihi > self.n_grid):
-                        raise ValueError('Pixels disperse outside grid.')
-                    for i in range(npixels):
-                        wlen = self.grid[ilo[i]:ihi[i]]
-                        supports.append(
-                            np.exp(-((wlen - mid[i]) / r2rms[i]) ** 2))
-                # Normalize and save.
-                for i in range(npixels):
-                    support = supports[i]
-                    gp[i,ilo[i]:ihi[i]] = norm[i] / support.sum() * support
-            else:
-                # psf is tabulated on internal grid.
-                if convolve_with_pixel:
-                    if not np.allclose(psf.sum(), 1):
-                        raise ValueError('Input psf is not normalized.')
-                    for i in range(npixels):
-                        self.psf_convolve(edges[i], edges[i + 1], psf, gp[i])
-                else:
-                    for i in range(npixels):
-                        self.psf_center(edges[i], edges[i + 1], psf, gp[i])
-        elif psf.shape == (npixels, self.n_psf):
+        if len(psf.shape) == 1 and len(psf) in (1, npixels):
+            # psf specifies either a single RMS or per-pixel RMS values.
+            if np.any(psf <= 0):
+                raise ValueError('Expected all PSF RMS > 0.')
+            # Calculate extent of clipped PSF for each pixel in grid units.
+            extent = np.ceil(sigma_clip * psf / self.grid_scale).astype(int)
+            r2rms = np.sqrt(2) * psf * np.ones(npixels)
+            # Tabulate clipped PSF with specified RMS value(s).
             if convolve_with_pixel:
-                if not np.allclose(psf.sum(axis=1), 1):
-                    raise ValueError('Input psfs are not normalized.')
+                ilo = edge_idx[:-1] - extent
+                ihi = edge_idx[1:] + extent + 1
+                if np.any(ilo < 0) or np.any(ihi > self.n_grid):
+                    raise ValueError('Pixels disperse outside grid.')
                 for i in range(npixels):
-                    self.psf_convolve(edges[i], edges[i + 1], psf[i], gp[i])
+                    wlen = self.grid[ilo[i]:ihi[i]]
+                    supports.append(0.5 * (
+                        scipy.special.erf((edges[i+1] - wlen) / r2rms[i]) -
+                        scipy.special.erf((edges[i] - wlen) / r2rms[i])))
+                    assert len(supports[-1] == ihi[i] - ilo[i])
             else:
+                ilo = mid_idx - extent
+                ihi = mid_idx + extent + 1
+                if np.any(ilo < 0) or np.any(ihi > self.n_grid):
+                    raise ValueError('Pixels disperse outside grid.')
                 for i in range(npixels):
-                    self.psf_center(edges[i], edges[i + 1], psf[i], gp[i])
+                    wlen = self.grid[ilo[i]:ihi[i]]
+                    supports.append(
+                        np.exp(-((wlen - mid[i]) / r2rms[i]) ** 2))
+                    assert len(supports[-1] == ihi[i] - ilo[i])
         else:
-            raise ValueError('Unexpected psf shape.')
+            if len(psf.shape) > 2:
+                raise ValueError('Invalid psf shape.')
+            if np.any(psf < 0):
+                raise ValueError('Tabulated psf values must all be >= 0.')
+            shared = len(psf.shape) == 1
+            n_psf = psf.shape[-1]
+            if n_psf % 2 != 1:
+                raise ValueError('Tabulated psf must be have odd length.')
+            # Calculate extent of clipped PSF for each pixel in grid units.
+            extent = (n_psf - 1) // 2
+            # psf is tabulated on internal grid.
+            if convolve_with_pixel:
+                ilo = edge_idx[:-1] - extent
+                ihi = edge_idx[1:] + extent + 1
+                for i in range(npixels):
+                    img = psf if shared else psf[i]
+                    pix = np.ones(edge_idx[i + 1] - edge_idx[i] + 1)
+                    supports.append(np.convolve(pix, img, mode='full'))
+                    assert len(supports[-1] == ihi[i] - ilo[i])
+            else:
+                ilo = mid_idx - extent
+                ihi = mid_idx + extent + 1
+                for i in range(npixels):
+                    supports.append(psf if shared else psf[i])
+                    assert len(supports[-1] == ihi[i] - ilo[i])
+        # Normalize and save each pixel support.
+        gp = np.zeros((npixels, self.n_grid))
+        for i in range(npixels):
+            support = supports[i]
+            assert len(support == ihi[i] - ilo[i])
+            gp[i,ilo[i]:ihi[i]] = norm[i] / support.sum() * support
 
         # Calculate this observation's contributions to phi, A.
         phi = np.zeros_like(self.phi_sum)
