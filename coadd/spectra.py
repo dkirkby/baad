@@ -35,14 +35,16 @@ class CoAdder(object):
             wlen_lo, wlen_hi, self.n_grid, retstep=True)
         if max_dispersion <= 0:
             raise ValueError('Expected max_dispersion > 0.')
-        n = int(np.ceil(max_dispersion / self.grid_scale))
-        self.n_psf = 2 * n + 1
-        self.psf_grid = np.arange(-n, n+1) * self.grid_scale
+        self.n_half = int(np.ceil(max_dispersion / self.grid_scale))
+        self.n_psf = 2 * self.n_half + 1
+        self.psf_grid = np.arange(
+            -self.n_half, self.n_half + 1) * self.grid_scale
         self.phi_sum = np.zeros(self.n_grid)
         self.A_sum = np.zeros((self.n_grid, self.n_grid))
         self.root2pi = np.sqrt(2 * np.pi)
 
-    def add(self, data, edges, ivar, psf, convolve_with_pixel=True):
+    def add(self, data, edges, ivar, psf, convolve_with_pixel=True,
+            sigma_clip=3.0):
         """Add a single observation to the coadd.
 
         Parameters
@@ -62,16 +64,17 @@ class CoAdder(object):
               - A single Gaussian RMS value in wlen units that applies
               to all pixels.
               - An array of N Gaussian RMS values in wlen units for each pixel.
-              - A array of length self.n_psf of dispersions tabulated at
-              self.psf_grid that applies to all pixels.
-              - An array with shape (N, self.n_psf) of dispersions tabulated
-              at self.psf_grid for each pixel.
-            Raises ValueError if the input is ambiguous because N == self.n_psf.
+              - A array of n dispersions tabulated on a uniform grid centered at
+              zero with spacing self.grid_scale that applies to all pixels.
+              - A 2D array of shape (N, n) with per-pixel tabulated dispersions.
         convolve_with_pixel : bool
             When True, the PSF represents a delta function response and should
-            be convolved over each pixel to calculate the range of true that
-            contribute to the pixel.  When False, the PSF is already convolved
-            over each pixel.
+            be convolved over each pixel to calculate the range of true
+            wavelengths that contribute to the pixel.  When False, the PSF is
+            already convolved over each pixel.
+        sigma_clip : float
+            Number of sigmas to use to truncate Gaussian PSFs specified by RMS.
+            Ignored when the input PSF is tabulated.
 
         Returns
         -------
@@ -81,17 +84,74 @@ class CoAdder(object):
         """
         npixels, data, edges, ivar = self.check_data(data, edges, ivar)
 
-        # Tabulate the support of each pixel i as gp[i].
+        if convolve_with_pixel:
+            # Find the closest grid indices to each edge.
+            edge_idx = np.searchsorted(self.grid, edges - 0.5 * self.grid_scale)
+            assert np.all(np.abs(
+                self.grid[edge_idx] - edges) <= 0.5 * self.grid_scale)
+        else:
+            # Find the closest grid indices to each pixel midpoint.
+            mid = 0.5 * (edges[1:] + edges[:-1])
+            mid_idx = np.searchsorted(self.grid, mid - 0.5 * self.grid_scale)
+            assert np.all(np.abs(
+                self.grid[mid_idx] - mid) <= 0.5 * self.grid_scale)
+
+        # Calculate the expected normalization of each pixel's support.
+        norm = (edges[1:] - edges[:-1]) / self.grid_scale
+
+        '''
+        # Initialize a sparse representation of the support for each pixel.
+        indptr = np.empty(npixels + 1, int)
+        indptr[0] = 0
+        indptr[1:] = np.cumsum(edge_hi - edge_lo)
+        nsparse = indptr[-1]
+        gp_data = np.empty(nsparse, float)
+        gp_indices = np.empty(nsparse, int)
+        for i in range(npixels):
+            gp_indices[indptr[i]:indptr[i + 1]] = np.arange(
+                edge_lo[i], edge_hi[i], dtype=int)
+        '''
+
+        # Calculate the support of each pixel.
         psf = np.atleast_1d(psf)
         gp = np.zeros((npixels, self.n_grid))
+        supports = []
         if len(psf.shape) == 1:
             # psf specifies either a single RMS, per-pixel RMS, or a
             # tabulated psf shared by all pixels.
-            if len(psf) not in (1, npixels, self.n_psf):
-                raise ValueError('Invalid psf array length.')
-            if len(psf.shape) == npixels and npixels == self.n_psf:
-                raise ValueError('Ambiguous psf since npixels = n_psf.')
-            if len(psf) == self.n_psf:
+            if len(psf) in (1, npixels):
+                # psf specifies either a single RMS or per-pixel RMS values.
+                if np.any(psf <= 0):
+                    raise ValueError('Expected all PSF RMS > 0.')
+                # Calculate extent of clipped PSF for each pixel in grid units.
+                extent = np.ceil(sigma_clip * psf / self.grid_scale).astype(int)
+                r2rms = np.sqrt(2) * psf * np.ones(npixels)
+                # Tabulate clipped PSF with specified RMS value(s).
+                if convolve_with_pixel:
+                    ilo = edge_idx[:-1] - extent
+                    ihi = edge_idx[1:] + extent
+                    if np.any(ilo < 0) or np.any(ihi > self.n_grid):
+                        raise ValueError('Pixels disperse outside grid.')
+                    for i in range(npixels):
+                        wlen = self.grid[ilo[i]:ihi[i]]
+                        supports.append(0.5 * (
+                            scipy.special.erf((edges[i+1] - wlen) / r2rms[i]) -
+                            scipy.special.erf((edges[i] - wlen) / r2rms[i])))
+                else:
+                    ilo = mid_idx - extent
+                    ihi = mid_idx + extent
+                    if np.any(ilo < 0) or np.any(ihi > self.n_grid):
+                        raise ValueError('Pixels disperse outside grid.')
+                    for i in range(npixels):
+                        wlen = self.grid[ilo[i]:ihi[i]]
+                        supports.append(
+                            np.exp(-((wlen - mid[i]) / r2rms[i]) ** 2))
+                # Normalize and save.
+                for i in range(npixels):
+                    support = supports[i]
+                    gp[i,ilo[i]:ihi[i]] = norm[i] / support.sum() * support
+            else:
+                # psf is tabulated on internal grid.
                 if convolve_with_pixel:
                     if not np.allclose(psf.sum(), 1):
                         raise ValueError('Input psf is not normalized.')
@@ -100,24 +160,6 @@ class CoAdder(object):
                 else:
                     for i in range(npixels):
                         self.psf_center(edges[i], edges[i + 1], psf, gp[i])
-            else:
-                # psf specifies either a single RMS or per-pixel RMS values.
-                if np.any(psf <= 0):
-                    raise ValueError('Expected all PSF RMS > 0.')
-                # Tabulate PSF with specified RMS value(s).
-                rms = psf.reshape(-1, 1)
-                wlen = self.grid
-                if convolve_with_pixel:
-                    erf_lo = scipy.special.erf(
-                        (edges[:-1, np.newaxis] - wlen) / (np.sqrt(2) * rms))
-                    erf_hi = scipy.special.erf(
-                        (edges[1:, np.newaxis] - wlen) / (np.sqrt(2) * rms))
-                    gp[:] = 0.5 * (erf_hi - erf_lo)
-                else:
-                    wlen0 = 0.5 * (edges[1:] + edges[:-1]).reshape(-1, 1)
-                    dwlen = (edges[1:] - edges[:-1]).reshape(-1, 1)
-                    gp[:] = dwlen * np.exp(
-                        -0.5 * ((wlen - wlen0) / rms) ** 2) / (self.root2pi * rms)
         elif psf.shape == (npixels, self.n_psf):
             if convolve_with_pixel:
                 if not np.allclose(psf.sum(axis=1), 1):
@@ -153,6 +195,11 @@ class CoAdder(object):
         n = (self.n_psf - 1) // 2
         assert idx_lo >= n and idx_hi < self.n_grid - n
         out[idx_lo - n: idx_hi + n + 1] = np.convolve(pixel, psf, mode='full')
+
+    def center_psf(self, ilo, ihi, psf):
+        """Center psf in a pixel spanning [lo,hi] and save results in out.
+        """
+
 
     def psf_center(self, lo, hi, psf, out):
         """Center psf in a pixel spanning [lo,hi] and save results in out.
