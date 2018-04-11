@@ -64,9 +64,10 @@ class CoAdder(object):
               - A single Gaussian RMS value in wlen units that applies
               to all pixels.
               - An array of N Gaussian RMS values in wlen units for each pixel.
-              - A array of n dispersions tabulated on a uniform grid centered at
-              zero with spacing self.grid_scale that applies to all pixels.
-              - A 2D array of shape (N, n) with per-pixel tabulated dispersions.
+              - A array of 2n+1 dispersions tabulated on a uniform grid centered
+              at zero with spacing self.grid_scale that applies to all pixels.
+              - A 2D array of shape (N, 2n+1) with per-pixel dispersions
+              tabulated on the same grid.
             PSF normalization is handled automatically. A tabulated PSF must
             must be non-negative and RMS values must all be positive.
         convolve_with_pixel : bool
