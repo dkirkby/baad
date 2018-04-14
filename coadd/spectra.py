@@ -3,6 +3,7 @@
 import numpy as np
 
 import scipy.special
+import scipy.sparse
 
 
 class CoAdder(object):
@@ -99,21 +100,8 @@ class CoAdder(object):
             assert np.all(np.abs(
                 self.grid[mid_idx] - mid) <= 0.5 * self.grid_scale)
 
-        # Calculate the expected normalization of each pixel's support.
+        # Calculate the required normalization of each pixel's support.
         norm = (edges[1:] - edges[:-1]) / self.grid_scale
-
-        '''
-        # Initialize a sparse representation of the support for each pixel.
-        indptr = np.empty(npixels + 1, int)
-        indptr[0] = 0
-        indptr[1:] = np.cumsum(edge_hi - edge_lo)
-        nsparse = indptr[-1]
-        gp_data = np.empty(nsparse, float)
-        gp_indices = np.empty(nsparse, int)
-        for i in range(npixels):
-            gp_indices[indptr[i]:indptr[i + 1]] = np.arange(
-                edge_lo[i], edge_hi[i], dtype=int)
-        '''
 
         # Calculate the support of each pixel.
         psf = np.atleast_1d(psf)
@@ -179,6 +167,21 @@ class CoAdder(object):
             support = supports[i]
             assert len(support == ihi[i] - ilo[i])
             gp[i,ilo[i]:ihi[i]] = norm[i] / support.sum() * support
+
+        # Build a CSR sparse matrix of the pixel supports.
+        iptr = np.empty(npixels + 1, int)
+        iptr[0] = 0
+        iptr[1:] = np.cumsum(ihi - ilo)
+        nsparse = iptr[-1]
+        sparse = np.empty(nsparse)
+        indices = np.empty(nsparse, int)
+        for i in range(npixels):
+            support = supports[i]
+            sparse[iptr[i]:iptr[i + 1]] = norm[i] / support.sum() * support
+            indices[iptr[i]:iptr[i + 1]] = np.arange(ilo[i], ihi[i], dtype=int)
+        gp_sparse = scipy.sparse.csr_matrix(
+            (sparse, indices, iptr), (npixels, self.n_grid))
+        assert np.all(gp_sparse.toarray() == gp)
 
         # Calculate this observation's contributions to phi, A.
         phi = np.zeros_like(self.phi_sum)
