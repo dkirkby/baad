@@ -36,13 +36,10 @@ class CoAdder(object):
             wlen_lo, wlen_hi, self.n_grid, retstep=True)
         if max_dispersion <= 0:
             raise ValueError('Expected max_dispersion > 0.')
-        self.n_half = int(np.ceil(max_dispersion / self.grid_scale))
-        self.n_psf = 2 * self.n_half + 1
-        self.psf_grid = np.arange(
-            -self.n_half, self.n_half + 1) * self.grid_scale
+        self.max_dispersion = max_dispersion
         self.phi_sum = np.zeros(self.n_grid)
         self.A_sum = scipy.sparse.lil_matrix((self.n_grid, self.n_grid))
-        self.root2pi = np.sqrt(2 * np.pi)
+
 
     def add(self, data, edges, ivar, psf, convolve_with_pixel=True,
             sigma_clip=3.0, retval=False):
@@ -226,8 +223,8 @@ class CoAdder(object):
             raise ValueError('All ivar values must >= 0.')
         if not np.all(np.diff(edges) > 0):
             raise ValueError('Pixel edges are not in increasing order.')
-        if edges[0] + self.psf_grid[0] < self.grid[0]:
+        if edges[0] - self.max_dispersion < self.grid[0]:
             raise ValueError('First edge not inset enough for dispersion.')
-        if edges[-1] + self.psf_grid[-1] > self.grid[-1]:
+        if edges[-1] + self.max_dispersion > self.grid[-1]:
             raise ValueError('Last edge not inset enough for dispersion.')
         return npixels, data, edges, ivar
