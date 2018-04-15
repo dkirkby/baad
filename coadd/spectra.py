@@ -100,13 +100,13 @@ class CoAdder(object):
             # Find the closest grid indices to each edge.
             edge_idx = np.searchsorted(self.grid, edges - 0.5 * self.grid_scale)
             assert np.all(np.abs(
-                self.grid[edge_idx] - edges) <= 0.5 * self.grid_scale)
+                self.grid[edge_idx] - edges) <= (0.5 + 1e-8) * self.grid_scale)
         else:
             # Find the closest grid indices to each pixel midpoint.
             mid = 0.5 * (edges[1:] + edges[:-1])
             mid_idx = np.searchsorted(self.grid, mid - 0.5 * self.grid_scale)
             assert np.all(np.abs(
-                self.grid[mid_idx] - mid) <= 0.5 * self.grid_scale)
+                self.grid[mid_idx] - mid) <= (0.5 + 1e-8) * self.grid_scale)
 
         # Calculate the (un-normalized) support of each pixel.
         psf = np.atleast_1d(psf)
