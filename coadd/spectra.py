@@ -41,7 +41,7 @@ class CoAdder(object):
         self.psf_grid = np.arange(
             -self.n_half, self.n_half + 1) * self.grid_scale
         self.phi_sum = np.zeros(self.n_grid)
-        self.A_sum = np.zeros((self.n_grid, self.n_grid))
+        self.A_sum = scipy.sparse.lil_matrix((self.n_grid, self.n_grid))
         self.root2pi = np.sqrt(2 * np.pi)
 
     def add(self, data, edges, ivar, psf, convolve_with_pixel=True,
@@ -91,8 +91,8 @@ class CoAdder(object):
             grid.  support is a CSR sparse array with shape (N,n_grid) with
             the normalized support of each pixel.  phi is a 1D array of
             length n_grid with this observation's contribution to phi_sum.
-            A is an array of shape (n_grid, n_grid) with this observation's
-            contribution to A_sum.
+            A is a LIL sparse array of shape (n_grid, n_grid) with this
+            observation's contribution to A_sum.
         """
         npixels, data, edges, ivar = self.check_data(data, edges, ivar)
 
@@ -175,7 +175,7 @@ class CoAdder(object):
         if retval:
             # Initialize arrays to return.
             phi = np.zeros_like(self.phi_sum)
-            A = np.zeros_like(self.A_sum)
+            A = scipy.sparse.lil_matrix((self.n_grid, self.n_grid))
             iptr = np.empty(npixels + 1, int)
             iptr[0] = 0
             iptr[1:] = np.cumsum(ihi - ilo)
