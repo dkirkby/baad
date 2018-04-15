@@ -41,6 +41,13 @@ class CoAdder(object):
         self.A_sum = scipy.sparse.lil_matrix((self.n_grid, self.n_grid))
 
 
+    def reset(self):
+        """Reset this coadder to its initial state.
+        """
+        self.phi_sum[:] = 0.
+        self.A_sum = scipy.sparse.lil_matrix((self.n_grid, self.n_grid))
+
+
     def add(self, data, edges, ivar, psf, convolve_with_pixel=True,
             sigma_clip=3.0, retval=False):
         """Add a single observation to the coadd.
