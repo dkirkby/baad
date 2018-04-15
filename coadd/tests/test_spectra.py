@@ -44,7 +44,7 @@ def test_add_analytic_vs_tabulated():
         else:
             psf *= pixelwidth / (np.sqrt(2 * np.pi) * rms)
         gp1, _, _ = c.add(*args, psf, convolve)
-        assert np.allclose(gp0, gp1, atol=0.05, rtol=0.05)
+        assert np.allclose(gp0.toarray(), gp1.toarray(), atol=0.05, rtol=0.05)
         # Individual PSFs for each pixel.
         rms = np.array([1.4, 1.5, 1.6])
         gp0, _, _ = c.add(*args, rms, convolve)
@@ -54,4 +54,4 @@ def test_add_analytic_vs_tabulated():
         else:
             psf *= pixelwidth / (np.sqrt(2 * np.pi) * rms.reshape(-1, 1))
         gp1, _, _ = c.add(*args, psf, convolve)
-        assert np.allclose(gp0, gp1, atol=0.05, rtol=0.05)
+        assert np.allclose(gp0.toarray(), gp1.toarray(), atol=0.05, rtol=0.05)

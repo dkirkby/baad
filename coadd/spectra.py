@@ -187,11 +187,13 @@ class CoAdder(object):
                 idx[iptr[i]:iptr[i + 1]] = np.arange(ilo[i], ihi[i], dtype=int)
             support = scipy.sparse.csr_matrix(
                 (sparse, idx, iptr), (npixels, self.n_grid))
+            '''
             # Check sparse against dense...
             gp = np.zeros((npixels, self.n_grid))
             for i in range(npixels):
                 gp[i,ilo[i]:ihi[i]] = supports[i]
             assert np.all(support.toarray() == gp)
+            '''
 
         # Accumulate each pixel's contribution to phi, A.
         for i, S in enumerate(supports):
@@ -207,7 +209,7 @@ class CoAdder(object):
             self.A_sum[ilo[i]:ihi[i],ilo[i]:ihi[i]] += dA
 
         if retval:
-            return support.toarray(), phi, A
+            return support, phi, A
 
     def check_data(self, data, edges, ivar):
         """Perform checks for valid input data.
