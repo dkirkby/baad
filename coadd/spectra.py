@@ -45,7 +45,7 @@ class CoAdder(object):
         self.root2pi = np.sqrt(2 * np.pi)
 
     def add(self, data, edges, ivar, psf, convolve_with_pixel=True,
-            sigma_clip=3.0):
+            sigma_clip=3.0, retval=True):
         """Add a single observation to the coadd.
 
         Parameters
@@ -79,12 +79,20 @@ class CoAdder(object):
         sigma_clip : float
             Number of sigmas to use to truncate Gaussian PSFs specified by RMS.
             Ignored when the input PSF is tabulated.
+        retval : bool
+            Returns a tuple of arrays (support, phi, A) that summarize this
+            observation's contribution to the coadd.
 
         Returns
         -------
         tuple
-            Tuple (psf, phi, A) giving this observation's contributions to
-            the coadd, tabulated on the internal grid.
+            When retval is True, return (support, phi, A) giving this
+            observation's contributions to the coadd, tabulated on the internal
+            grid.  support is a CSR sparse array with shape (N,n_grid) with
+            the normalized support of each pixel.  phi is a 1D array of
+            length n_grid with this observation's contribution to phi_sum.
+            A is an array of shape (n_grid, n_grid) with this observation's
+            contribution to A_sum.
         """
         npixels, data, edges, ivar = self.check_data(data, edges, ivar)
 
@@ -100,10 +108,7 @@ class CoAdder(object):
             assert np.all(np.abs(
                 self.grid[mid_idx] - mid) <= 0.5 * self.grid_scale)
 
-        # Calculate the required normalization of each pixel's support.
-        norm = (edges[1:] - edges[:-1]) / self.grid_scale
-
-        # Calculate the support of each pixel.
+        # Calculate the (un-normalized) support of each pixel.
         psf = np.atleast_1d(psf)
         supports = []
         if len(psf.shape) == 1 and len(psf) in (1, npixels):
@@ -161,6 +166,50 @@ class CoAdder(object):
                 for i in range(npixels):
                     supports.append(psf if shared else psf[i])
                     assert len(supports[-1] == ihi[i] - ilo[i])
+
+        # Normalize each pixel's support in place.
+        norm = (edges[1:] - edges[:-1]) / self.grid_scale
+        for i in range(npixels):
+            supports[i] *= norm[i] / supports[i].sum()
+
+        if retval:
+            # Initialize arrays to return.
+            phi = np.zeros_like(self.phi_sum)
+            A = np.zeros_like(self.A_sum)
+            iptr = np.empty(npixels + 1, int)
+            iptr[0] = 0
+            iptr[1:] = np.cumsum(ihi - ilo)
+            nsparse = iptr[-1]
+            sparse = np.concatenate(supports)
+            assert sparse.shape == (nsparse,)
+            idx = np.empty(nsparse, int)
+            for i in range(npixels):
+                idx[iptr[i]:iptr[i + 1]] = np.arange(ilo[i], ihi[i], dtype=int)
+            support = scipy.sparse.csr_matrix(
+                (sparse, idx, iptr), (npixels, self.n_grid))
+            # Check sparse against dense...
+            gp = np.zeros((npixels, self.n_grid))
+            for i in range(npixels):
+                gp[i,ilo[i]:ihi[i]] = supports[i]
+            assert np.all(support.toarray() == gp)
+
+        # Accumulate each pixel's contribution to phi, A.
+        for i, S in enumerate(supports):
+            if ivar[i] == 0:
+                continue
+            dphi = data[i] * ivar[i] * S
+            if retval:
+                phi[ilo[i]:ihi[i]] += dphi
+            self.phi_sum[ilo[i]:ihi[i]] += dphi
+            dA = ivar[i] * np.outer(S, S)
+            if retval:
+                A[ilo[i]:ihi[i],ilo[i]:ihi[i]] += dA
+            self.A_sum[ilo[i]:ihi[i],ilo[i]:ihi[i]] += dA
+
+        if retval:
+            return support.toarray(), phi, A
+
+        '''
         # Normalize and save each pixel support.
         gp = np.zeros((npixels, self.n_grid))
         for i in range(npixels):
@@ -193,6 +242,7 @@ class CoAdder(object):
         self.A_sum += A
 
         return gp, phi, A
+        '''
 
     def psf_convolve(self, lo, hi, psf, out):
         """Convolve psf with a pixel spanning [lo,hi] and save results in out.
