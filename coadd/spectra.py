@@ -209,69 +209,6 @@ class CoAdder(object):
         if retval:
             return support.toarray(), phi, A
 
-        '''
-        # Normalize and save each pixel support.
-        gp = np.zeros((npixels, self.n_grid))
-        for i in range(npixels):
-            support = supports[i]
-            assert len(support == ihi[i] - ilo[i])
-            gp[i,ilo[i]:ihi[i]] = norm[i] / support.sum() * support
-
-        # Build a CSR sparse matrix of the pixel supports.
-        iptr = np.empty(npixels + 1, int)
-        iptr[0] = 0
-        iptr[1:] = np.cumsum(ihi - ilo)
-        nsparse = iptr[-1]
-        sparse = np.empty(nsparse)
-        indices = np.empty(nsparse, int)
-        for i in range(npixels):
-            support = supports[i]
-            sparse[iptr[i]:iptr[i + 1]] = norm[i] / support.sum() * support
-            indices[iptr[i]:iptr[i + 1]] = np.arange(ilo[i], ihi[i], dtype=int)
-        gp_sparse = scipy.sparse.csr_matrix(
-            (sparse, indices, iptr), (npixels, self.n_grid))
-        assert np.all(gp_sparse.toarray() == gp)
-
-        # Calculate this observation's contributions to phi, A.
-        phi = np.zeros_like(self.phi_sum)
-        A = np.zeros_like(self.A_sum)
-        for i in range(npixels):
-            phi += gp[i] * data[i] * ivar[i]
-            A += np.outer(gp[i], gp[i]) * ivar[i]
-        self.phi_sum += phi
-        self.A_sum += A
-
-        return gp, phi, A
-        '''
-
-    def psf_convolve(self, lo, hi, psf, out):
-        """Convolve psf with a pixel spanning [lo,hi] and save results in out.
-        """
-        # Find the closest grid indices to lo, hi.
-        edges = np.array([lo, hi]) - 0.5 * self.grid_scale
-        idx_lo, idx_hi = np.searchsorted(self.grid, edges)
-        assert np.abs(lo - self.grid[idx_lo]) <= 0.5 * self.grid_scale
-        assert np.abs(hi - self.grid[idx_hi]) <= 0.5 * self.grid_scale
-        pixel = np.ones(idx_hi - idx_lo + 1, dtype=out.dtype)
-        n = (self.n_psf - 1) // 2
-        assert idx_lo >= n and idx_hi < self.n_grid - n
-        out[idx_lo - n: idx_hi + n + 1] = np.convolve(pixel, psf, mode='full')
-
-    def center_psf(self, ilo, ihi, psf):
-        """Center psf in a pixel spanning [lo,hi] and save results in out.
-        """
-
-
-    def psf_center(self, lo, hi, psf, out):
-        """Center psf in a pixel spanning [lo,hi] and save results in out.
-        """
-        wmid = 0.5 * (lo + hi)
-        # Find the closest grid index to wmid.
-        idx = np.searchsorted(self.grid, [wmid - 0.5 * self.grid_scale])[0]
-        assert np.abs(wmid - self.grid[idx]) <= 0.5 * self.grid_scale
-        n = (self.n_psf - 1) // 2
-        out[idx - n: idx + n + 1] = psf
-
     def check_data(self, data, edges, ivar):
         """Perform checks for valid input data.
         """
