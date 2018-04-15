@@ -45,7 +45,7 @@ class CoAdder(object):
         self.root2pi = np.sqrt(2 * np.pi)
 
     def add(self, data, edges, ivar, psf, convolve_with_pixel=True,
-            sigma_clip=3.0, retval=True):
+            sigma_clip=3.0, retval=False):
         """Add a single observation to the coadd.
 
         Parameters
