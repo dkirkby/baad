@@ -89,7 +89,8 @@ class CoAdder(object):
         edges : array
             Array of N+1 increasing pixels edges for this observation.
             The first and last edges must be inset enough for the maximum
-            dispersion.
+            dispersion. If you only know pixel centers, you can use
+            func:`utils.centers_to_edges` to estimate pixel edges.
         ivar : array
             Array of N inverse variances for this observation's data. Must
             all be >= 0. Covariances between pixels are assumed to be zero.
