@@ -6,9 +6,41 @@ import scipy.special
 import scipy.sparse
 
 
+class SparseAccumulator(object):
+
+    def __init__(self, N, M, dtype=np.float):
+        nsparse = N ** 2 - (N - M - 1) * (N - M)
+        if nsparse <= 0:
+            raise ValueError('Invalid sparse shape parameters.')
+        data = np.zeros(nsparse, dtype)
+        diag = np.arange(N, dtype=np.int)
+        lo = np.maximum(0, diag - M)
+        hi = np.minimum(N, diag + M + 1)
+        indptr = np.empty(N + 1, np.int)
+        indptr[0] = 0
+        indptr[1:] = np.cumsum(hi - lo)
+        assert indptr[-1] == nsparse
+        assert indptr[1] == M + 1
+        indices = np.empty(nsparse, np.int)
+        for i in range(N):
+            indices[indptr[i]:indptr[i + 1]] = np.arange(lo[i], hi[i], dtype=int)
+        self.csr = scipy.sparse.csr_matrix((data, indices, indptr), (N, N))
+
+    def reset(self):
+        self.csr.data[:] = 0
+
+    def add(self, B, offset):
+        nrow, ncol = B.shape
+        idx = self.csr.indptr[offset:offset + nrow]
+        col1 = idx - self.csr.indices[idx] + offset
+        col2 = col1 + ncol
+        for i, b in enumerate(B):
+            self.csr.data[col1[i]:col2[i]] += b
+
+
 class CoAdder(object):
 
-    def __init__(self, wlen_lo, wlen_hi, wlen_step):
+    def __init__(self, wlen_lo, wlen_hi, wlen_step, max_spread):
         """Initialize coadder for 1D binned data.
 
         Parameters
@@ -23,6 +55,9 @@ class CoAdder(object):
             Internal step size will rounded down from this value to uniformly
             cover [wlen_lo, wlen_hi].  Should be ~5x the smallest expected
             RMS dispersion.
+        max_spread : float
+            Maximum spread of true wavelengths contributing to a single pixel.
+            Used to determine the sparse structure of internal arrays.
         """
         if wlen_lo >= wlen_hi:
             raise ValueError('Expected wlen_lo < wlen_hi.')
@@ -34,12 +69,17 @@ class CoAdder(object):
         self.phi_sum = np.zeros(self.n_grid)
         self.A_sum = scipy.sparse.lil_matrix((self.n_grid, self.n_grid))
 
+        self.n_spread = int(np.ceil(max_spread / wlen_step))
+        self.A_sum2 = SparseAccumulator(self.n_grid, self.n_spread)
+
 
     def reset(self):
         """Reset this coadder to its initial state.
         """
         self.phi_sum[:] = 0.
         self.A_sum = scipy.sparse.lil_matrix((self.n_grid, self.n_grid))
+
+        self.A_sum2.reset()
 
 
     def add(self, data, edges, ivar, psf, convolve_with_pixel=True,
@@ -169,6 +209,10 @@ class CoAdder(object):
                     supports.append(psf if shared else psf[i])
                     assert len(supports[-1] == ihi[i] - ilo[i])
 
+        if np.any(ihi - ilo > 2 * self.n_spread + 1):
+            print(np.max(ihi - ilo))
+            raise ValueError('Dispersed pixels exceed maximum spread.')
+
         # Normalize each pixel's support in place.
         norm = (edges[1:] - edges[:-1]) / self.grid_scale
         for i in range(npixels):
@@ -209,6 +253,9 @@ class CoAdder(object):
             if retval:
                 A[ilo[i]:ihi[i],ilo[i]:ihi[i]] += dA
             self.A_sum[ilo[i]:ihi[i],ilo[i]:ihi[i]] += dA
+            self.A_sum2.add(dA, ilo[i])
+
+        assert np.array_equal(self.A_sum.toarray(), self.A_sum2.csr.toarray())
 
         if retval:
             return support, phi, A

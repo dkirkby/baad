@@ -6,7 +6,7 @@ from coadd.spectra import *
 def test_ctor():
     """Normal construction.
     """
-    c = CoAdder(100., 200., 1.)
+    c = CoAdder(100., 200., 1., 50.)
     assert c.grid[0] == 100.
     assert c.grid[-1] == 200.
     assert c.grid_scale == 1.
@@ -17,7 +17,7 @@ def test_ctor():
 def test_add_psf():
     """Addition with different types of PSF inputs.
     """
-    c = CoAdder(100., 200., 0.5)
+    c = CoAdder(100., 200., 0.5, 50.)
     psf = np.zeros(21)
     psf[10] = 1
     psfs = np.tile(psf, [3, 1])
@@ -32,7 +32,7 @@ def test_add_psf():
 def test_reset():
     """Reset after adding.
     """
-    c = CoAdder(100., 200., 0.5)
+    c = CoAdder(100., 200., 0.5, 50.)
     psf = np.zeros(21)
     psf[10] = 1
     psfs = np.tile(psf, [3, 1])
@@ -48,9 +48,9 @@ def test_reset():
 def test_add_analytic_vs_tabulated():
     """Compare analytic vs tabulated Gaussian PSFs.
     """
-    c = CoAdder(100., 200., 0.5)
+    c = CoAdder(100., 200., 0.5, 50.)
     data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
-    psf_grid = 0.5 * np.arange(-10, +11)
+    psf_grid = c.grid_scale * np.arange(-10, +11)
     for convolve in True, False:
         # Common PSF for all pixels.
         rms = 1.5
