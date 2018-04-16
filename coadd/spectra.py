@@ -8,7 +8,7 @@ import scipy.sparse
 
 class CoAdder(object):
 
-    def __init__(self, wlen_lo, wlen_hi, wlen_step, max_dispersion):
+    def __init__(self, wlen_lo, wlen_hi, wlen_step):
         """Initialize coadder for 1D binned data.
 
         Parameters
@@ -23,9 +23,6 @@ class CoAdder(object):
             Internal step size will rounded down from this value to uniformly
             cover [wlen_lo, wlen_hi].  Should be ~5x the smallest expected
             RMS dispersion.
-        max_dispersion : float
-            The maximum expected dispersion in wlen units. Any PSF with
-            tails beyond this value will be truncated.
         """
         if wlen_lo >= wlen_hi:
             raise ValueError('Expected wlen_lo < wlen_hi.')
@@ -34,9 +31,6 @@ class CoAdder(object):
         self.n_grid = int(np.ceil((wlen_hi - wlen_lo) / wlen_step)) + 1
         self.grid, self.grid_scale = np.linspace(
             wlen_lo, wlen_hi, self.n_grid, retstep=True)
-        if max_dispersion <= 0:
-            raise ValueError('Expected max_dispersion > 0.')
-        self.max_dispersion = max_dispersion
         self.phi_sum = np.zeros(self.n_grid)
         self.A_sum = scipy.sparse.lil_matrix((self.n_grid, self.n_grid))
 
@@ -159,6 +153,8 @@ class CoAdder(object):
             if convolve_with_pixel:
                 ilo = edge_idx[:-1] - extent
                 ihi = edge_idx[1:] + extent + 1
+                if ilo[0] < 0 or ihi[-1] > self.n_grid:
+                    raise ValueError('Pixels disperse outside grid.')
                 for i in range(npixels):
                     img = psf if shared else psf[i]
                     pix = np.ones(edge_idx[i + 1] - edge_idx[i] + 1)
@@ -167,6 +163,8 @@ class CoAdder(object):
             else:
                 ilo = mid_idx - extent
                 ihi = mid_idx + extent + 1
+                if ilo[0] < 0 or ihi[-1] > self.n_grid:
+                    raise ValueError('Pixels disperse outside grid.')
                 for i in range(npixels):
                     supports.append(psf if shared else psf[i])
                     assert len(supports[-1] == ihi[i] - ilo[i])
@@ -230,8 +228,4 @@ class CoAdder(object):
             raise ValueError('All ivar values must >= 0.')
         if not np.all(np.diff(edges) > 0):
             raise ValueError('Pixel edges are not in increasing order.')
-        if edges[0] - self.max_dispersion < self.grid[0]:
-            raise ValueError('First edge not inset enough for dispersion.')
-        if edges[-1] + self.max_dispersion > self.grid[-1]:
-            raise ValueError('Last edge not inset enough for dispersion.')
         return npixels, data, edges, ivar
