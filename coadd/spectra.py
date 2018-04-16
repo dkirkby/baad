@@ -67,19 +67,15 @@ class CoAdder(object):
         self.grid, self.grid_scale = np.linspace(
             wlen_lo, wlen_hi, self.n_grid, retstep=True)
         self.phi_sum = np.zeros(self.n_grid)
-        self.A_sum = scipy.sparse.lil_matrix((self.n_grid, self.n_grid))
-
         self.n_spread = int(np.ceil(max_spread / wlen_step))
-        self.A_sum2 = SparseAccumulator(self.n_grid, self.n_spread)
+        self.A_sum = SparseAccumulator(self.n_grid, self.n_spread)
 
 
     def reset(self):
         """Reset this coadder to its initial state.
         """
         self.phi_sum[:] = 0.
-        self.A_sum = scipy.sparse.lil_matrix((self.n_grid, self.n_grid))
-
-        self.A_sum2.reset()
+        self.A_sum.reset()
 
 
     def add(self, data, edges, ivar, psf, convolve_with_pixel=True,
@@ -126,10 +122,10 @@ class CoAdder(object):
         tuple
             When retval is True, return (support, phi, A) giving this
             observation's contributions to the coadd, tabulated on the internal
-            grid.  support is a CSR sparse array with shape (N,n_grid) with
+            grid.  Support is a CSR sparse array with shape (N,n_grid) with
             the normalized support of each pixel.  phi is a 1D array of
             length n_grid with this observation's contribution to phi_sum.
-            A is a LIL sparse array of shape (n_grid, n_grid) with this
+            A is a CSR sparse array of shape (n_grid, n_grid) with this
             observation's contribution to A_sum.
         """
         npixels, data, edges, ivar = self.check_data(data, edges, ivar)
@@ -209,9 +205,12 @@ class CoAdder(object):
                     supports.append(psf if shared else psf[i])
                     assert len(supports[-1] == ihi[i] - ilo[i])
 
+        # Check that no pixels spread beyond our sparse cutoff.
         if np.any(ihi - ilo > 2 * self.n_spread + 1):
-            print(np.max(ihi - ilo))
-            raise ValueError('Dispersed pixels exceed maximum spread.')
+            raise ValueError(
+                'Dispersed pixel spread {:.1f} exceed maximum spread {:.1f}.'
+                .format(self.grid_scale * np.max(ihi - ilo),
+                        self.grid_scale * self.n_spread))
 
         # Normalize each pixel's support in place.
         norm = (edges[1:] - edges[:-1]) / self.grid_scale
@@ -221,7 +220,7 @@ class CoAdder(object):
         if retval:
             # Initialize arrays to return.
             phi = np.zeros_like(self.phi_sum)
-            A = scipy.sparse.lil_matrix((self.n_grid, self.n_grid))
+            A = SparseAccumulator(self.n_grid, self.n_spread)
             iptr = np.empty(npixels + 1, int)
             iptr[0] = 0
             iptr[1:] = np.cumsum(ihi - ilo)
@@ -251,11 +250,8 @@ class CoAdder(object):
             self.phi_sum[ilo[i]:ihi[i]] += dphi
             dA = ivar[i] * np.outer(S, S)
             if retval:
-                A[ilo[i]:ihi[i],ilo[i]:ihi[i]] += dA
-            self.A_sum[ilo[i]:ihi[i],ilo[i]:ihi[i]] += dA
-            self.A_sum2.add(dA, ilo[i])
-
-        assert np.array_equal(self.A_sum.toarray(), self.A_sum2.csr.toarray())
+                A.add(dA, ilo[i])
+            self.A_sum.add(dA, ilo[i])
 
         if retval:
             return support, phi, A

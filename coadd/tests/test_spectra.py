@@ -11,7 +11,7 @@ def test_ctor():
     assert c.grid[-1] == 200.
     assert c.grid_scale == 1.
     assert np.all(c.phi_sum == 0)
-    assert np.all(c.A_sum.toarray() == 0)
+    assert np.all(c.A_sum.csr.toarray() == 0)
 
 
 def test_add_psf():
@@ -39,10 +39,10 @@ def test_reset():
     data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
     c.add(*data, 5)
     assert not np.all(c.phi_sum == 0)
-    assert not np.all(c.A_sum.toarray() == 0)
+    assert not np.all(c.A_sum.csr.toarray() == 0)
     c.reset()
     assert np.all(c.phi_sum == 0)
-    assert np.all(c.A_sum.toarray() == 0)
+    assert np.all(c.A_sum.csr.toarray() == 0)
 
 
 def test_add_analytic_vs_tabulated():
