@@ -91,9 +91,10 @@ class CoAdder(object):
             The first and last edges must be inset enough for the maximum
             dispersion. If you only know pixel centers, you can use
             func:`utils.centers_to_edges` to estimate pixel edges.
-        ivar : array
+        ivar : array or float
             Array of N inverse variances for this observation's data. Must
             all be >= 0. Covariances between pixels are assumed to be zero.
+            A single float value is assumed to apply to all pixels.
         psf : float or array
             The dispersion at each pixel center can be specified four different
             ways:
@@ -263,10 +264,12 @@ class CoAdder(object):
         npixels = len(data)
         data = np.asarray(data)
         edges = np.asarray(edges)
-        ivar = np.asarray(ivar)
+        ivar = np.atleast_1d(ivar)
         if len(edges) != npixels + 1:
             raise ValueError('Length of edges and data arrays do not match.')
-        if len(ivar) != npixels:
+        if len(ivar) == 1:
+            ivar = np.full(npixels, ivar)
+        elif len(ivar) != npixels:
             raise ValueError('Length of ivar and data arrays do not match.')
         if np.any(ivar < 0):
             raise ValueError('All ivar values must >= 0.')
