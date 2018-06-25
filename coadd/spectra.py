@@ -23,7 +23,8 @@ class SparseAccumulator(object):
         assert indptr[1] == M + 1
         indices = np.empty(nsparse, np.int)
         for i in range(N):
-            indices[indptr[i]:indptr[i + 1]] = np.arange(lo[i], hi[i], dtype=int)
+            indices[indptr[i]:indptr[i + 1]] = np.arange(
+                lo[i], hi[i], dtype=int)
         self.csr = scipy.sparse.csr_matrix((data, indices, indptr), (N, N))
 
     def reset(self):
@@ -70,13 +71,11 @@ class CoAdder(object):
         self.n_spread = int(np.ceil(max_spread / wlen_step))
         self.A_sum = SparseAccumulator(self.n_grid, self.n_spread)
 
-
     def reset(self):
         """Reset this coadder to its initial state.
         """
         self.phi_sum[:] = 0.
         self.A_sum.reset()
-
 
     def add(self, data, edges, ivar, psf, convolve_with_pixel=True,
             sigma_clip=3.0, retval=False):
@@ -101,8 +100,9 @@ class CoAdder(object):
               - A single Gaussian RMS value in wlen units that applies
               to all pixels.
               - An array of N Gaussian RMS values in wlen units for each pixel.
-              - A array of 2n+1 dispersions tabulated on a uniform grid centered
-              at zero with spacing self.grid_scale that applies to all pixels.
+              - A array of 2n+1 dispersions tabulated on a uniform grid
+              centered at zero with spacing self.grid_scale that applies to all
+              pixels.
               - A 2D array of shape (N, 2n+1) with per-pixel dispersions
               tabulated on the same grid.
             PSF normalization is handled automatically. A tabulated PSF must
@@ -134,7 +134,8 @@ class CoAdder(object):
 
         if convolve_with_pixel:
             # Find the closest grid indices to each edge.
-            edge_idx = np.searchsorted(self.grid, edges - 0.5 * self.grid_scale)
+            edge_idx = np.searchsorted(
+                self.grid, edges - 0.5 * self.grid_scale)
             assert np.all(np.abs(
                 self.grid[edge_idx] - edges) <= (0.5 + 1e-8) * self.grid_scale)
         else:
