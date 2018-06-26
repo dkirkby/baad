@@ -65,6 +65,7 @@ class CoAdder(object):
         if wlen_step <= 0:
             raise ValueError('Expected wlen_step > 0.')
         self.n_grid = int(np.ceil((wlen_hi - wlen_lo) / wlen_step)) + 1
+        # Calculate grid centers.
         self.grid, self.grid_scale = np.linspace(
             wlen_lo, wlen_hi, self.n_grid, retstep=True)
         self.phi_sum = np.zeros(self.n_grid)
@@ -89,7 +90,7 @@ class CoAdder(object):
             Array of N+1 increasing pixels edges for this observation.
             The first and last edges must be inset enough for the maximum
             dispersion. If you only know pixel centers, you can use
-            func:`utils.centers_to_edges` to estimate pixel edges.
+            func:`coadd.utils.centers_to_edges` to estimate pixel edges.
         ivar : array or float
             Array of N inverse variances for this observation's data. Must
             all be >= 0. Covariances between pixels are assumed to be zero.
@@ -124,7 +125,7 @@ class CoAdder(object):
         tuple
             When retval is True, return (support, phi, A) giving this
             observation's contributions to the coadd, tabulated on the internal
-            grid.  Support is a CSR sparse array with shape (N,n_grid) with
+            grid.  Support is a CSR sparse array with shape (N, n_grid) with
             the normalized support of each pixel.  phi is a 1D array of
             length n_grid with this observation's contribution to phi_sum.
             A is a CSR sparse array of shape (n_grid, n_grid) with this
@@ -277,3 +278,31 @@ class CoAdder(object):
         if not np.all(np.diff(edges) > 0):
             raise ValueError('Pixel edges are not in increasing order.')
         return npixels, data, edges, ivar
+
+    def get_phi(self):
+        """Return phi vector summary statistic.
+
+        Returns
+        -------
+        array
+            1D array of length ``n_grid`` tabulating the phi statistic at the
+            wavelengths ``grid``.
+        """
+        return self.phi_sum
+
+    def get_A(self, sigma_f=0, sparse=False):
+        """Return the A matrix summary statistic.
+
+        Returns a copy if sigma_f is nonzero or sparse is False.
+        """
+        if sigma_f < 0:
+            raise ValueError('Expected sigma_f >= 0.')
+        if sigma_f == 0 and sparse:
+            return self.A_sum.csr
+        csr = self.A_sum.csr.copy()
+        if sigma_f > 0:
+            csr += sigma_f ** -2 * scipy.sparse.identity(self.n_grid)
+        if sparse:
+            return csr
+        else:
+            return csr.toarray()

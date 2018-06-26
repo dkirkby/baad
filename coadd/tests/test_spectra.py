@@ -1,6 +1,6 @@
 import numpy as np
 
-from coadd.spectra import *
+from coadd.spectra import CoAdder
 
 
 def test_ctor():
@@ -64,3 +64,19 @@ def test_add_analytic_vs_tabulated():
         psf = np.exp(-0.5 * (psf_grid / rms.reshape(-1, 1)) ** 2)
         gp1, _, _ = c.add(*data, psf, convolve, retval=True)
         assert np.allclose(gp0.toarray(), gp1.toarray(), atol=0.05, rtol=0.05)
+
+
+def test_get_phi():
+    """Test calculation of phi vector summary statistic.
+    """
+    c = CoAdder(300, 1000, 1, 10)
+    assert np.all(c.get_phi() == 0)
+
+
+def test_get_A():
+    """Test calculation of A matrix summary statistic.
+    """
+    c = CoAdder(300, 1000, 1, 10)
+    assert np.all(c.get_A() == 0)
+    assert np.array_equal(c.get_A(sparse=True).toarray(), c.get_A(sparse=False))
+    assert np.array_equal(c.get_A(sigma_f=2), 0.25 * np.identity(c.n_grid))
