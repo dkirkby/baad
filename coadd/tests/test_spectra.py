@@ -69,14 +69,24 @@ def test_add_analytic_vs_tabulated():
 def test_get_phi():
     """Test calculation of phi vector summary statistic.
     """
-    c = CoAdder(300, 1000, 1, 10)
+    c = CoAdder(100., 200., 0.5, 50.)
     assert np.all(c.get_phi() == 0)
+    data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
+    c.add(*data, 5)
+    assert np.allclose(np.mean(c.get_phi()), 0.0895522)
+    assert np.allclose(np.std(c.get_phi()), 0.1422825)
 
 
 def test_get_A():
     """Test calculation of A matrix summary statistic.
     """
-    c = CoAdder(300, 1000, 1, 10)
+    c = CoAdder(100., 200., 0.5, 50.)
     assert np.all(c.get_A() == 0)
     assert np.array_equal(c.get_A(sparse=True).toarray(), c.get_A(sparse=False))
     assert np.array_equal(c.get_A(sigma_f=2), 0.25 * np.identity(c.n_grid))
+    data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
+    c.add(*data, 5)
+    assert np.allclose(np.trace(c.get_A()), 3.89099485)
+    assert np.linalg.slogdet(c.get_A())[1] == -np.inf
+    assert np.allclose(np.trace(c.get_A(sigma_f=1.1)), 170.006697)
+    assert np.allclose(np.linalg.slogdet(c.get_A(sigma_f=1.1))[1], -35.734250)
