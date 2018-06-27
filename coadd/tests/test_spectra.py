@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 
 from coadd.spectra import CoAdder
@@ -35,7 +36,6 @@ def test_reset():
     c = CoAdder(100., 200., 0.5, 50.)
     psf = np.zeros(21)
     psf[10] = 1
-    psfs = np.tile(psf, [3, 1])
     data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
     c.add(*data, 5)
     assert not np.all(c.phi_sum == 0)
@@ -82,7 +82,8 @@ def test_get_A():
     """
     c = CoAdder(100., 200., 0.5, 50.)
     assert np.all(c.get_A() == 0)
-    assert np.array_equal(c.get_A(sparse=True).toarray(), c.get_A(sparse=False))
+    assert np.array_equal(
+        c.get_A(sparse=True).toarray(), c.get_A(sparse=False))
     assert np.array_equal(c.get_A(sigma_f=2), 0.25 * np.identity(c.n_grid))
     data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
     c.add(*data, 5)
@@ -90,3 +91,21 @@ def test_get_A():
     assert np.linalg.slogdet(c.get_A())[1] == -np.inf
     assert np.allclose(np.trace(c.get_A(sigma_f=1.1)), 170.006697)
     assert np.allclose(np.linalg.slogdet(c.get_A(sigma_f=1.1))[1], -35.734250)
+
+
+def test_get_log_evidence():
+    """Test calculation of log evidence.
+    """
+    c = CoAdder(100., 200., 0.5, 50.)
+    assert c.get_log_evidence(sigma_f=1) == 0
+    data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
+    c.add(*data, 5)
+    assert np.allclose(c.get_log_evidence(sigma_f=1), -0.32704586)
+    assert np.allclose(c.get_log_evidence(sigma_f=[1]), [-0.32704586])
+    assert np.allclose(
+        c.get_log_evidence(sigma_f=[0.1, 1, 10]),
+        [0.00843854, -0.32704586, -5.79924322])
+    with pytest.raises(ValueError):
+        c.get_log_evidence(sigma_f=0)
+    with pytest.raises(ValueError):
+        c.get_log_evidence(sigma_f=[1, -1])

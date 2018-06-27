@@ -4,6 +4,7 @@ import numpy as np
 
 import scipy.special
 import scipy.sparse
+import scipy.optimize
 
 
 class SparseAccumulator(object):
@@ -291,7 +292,11 @@ class CoAdder(object):
         return self.phi_sum
 
     def get_A(self, sigma_f=0, sparse=False):
-        """Return the A matrix summary statistic.
+        """Return the A matrix summary statistic conditioned with a prior.
+
+        Note that the returned matrix is almost certainly invertible when
+        sigma_f > 0, except in the unlikely case that sigma_f equals one of the
+        eigenvalues of A with sigma_f = 0.
 
         Returns a copy if sigma_f is nonzero or sparse is False.
         """
@@ -306,3 +311,84 @@ class CoAdder(object):
             return csr
         else:
             return csr.toarray()
+
+    def get_log_evidence(self, sigma_f):
+        """Calculate the log of the evidence P(D|sigma_f).
+
+        Note that this is relatively slow since it requires expanding the
+        sparse A into a dense matrix in order to calculate its (log)
+        determinant.
+
+        TODO:
+        * Does this method need to be faster?
+        * How much does the logdet term contribute? Would a fast
+          approximation to |A0+eps| help here?
+        * How much does the phi.Ainv.phi term contribute? Would a fast
+          approximation to phi.(A0+eps)**-1.phi help here?
+        * Benchmark dense vs sparse methods, e.g., using suggestions in
+          https://stackoverflow.com/questions/19107617/
+          how-to-compute-scipy-sparse-matrix-determinant-without-turning-it-to-dense
+
+        Parameters
+        ----------
+        sigma_f : float or array
+            Value(s) of the hyperparameter giving the RMS of the Gaussian flux
+            prior on the high-resolution internal grid.
+
+        Returns
+        -------
+        float or array
+            Value(s) of the log evidence corresponding to each input sigma_f.
+        """
+        phi = self.get_phi()
+        A0 = self.get_A(sparse=False, sigma_f=0)
+        scalar = np.asarray(sigma_f).shape == ()
+        sigma_f = np.atleast_1d(sigma_f).astype(float)
+        if np.any(sigma_f <= 0):
+            raise ValueError('Expected all sigma_f > 0.')
+        logE = np.empty(sigma_f.shape, float)
+        eye = np.identity(self.n_grid)
+        for i, ivar in enumerate(sigma_f ** -2):
+            A = A0 + ivar * eye
+            s, logdetA = np.linalg.slogdet(A)
+            assert s > 0, f'Invalid sign|A|={s} for sigma_f={sigma_f}'
+            Ainv = np.linalg.inv(A)
+            logE[i] = 0.5 * (
+                self.n_grid * np.log(ivar) - logdetA + phi.dot(Ainv.dot(phi)))
+        return logE[0] if scalar else logE
+
+    def get_most_probable(self, sigma_f_min, sigma_f_max, rtol=1e-4):
+        """Calculate most probable value of the hyperparameter sigma_f.
+
+        Uses root finding on the logarithmic derivative of the log evidence.
+        The input min/max limits must bracket the root.
+
+        Parameters
+        ----------
+        sigma_f_min : float
+            Minimum value to consider.
+        sigma_f_max : float
+            Maximum value to consider.
+        rtol : float
+            Desired fractional accuracy.
+
+        Returns
+        -------
+        float
+            Value of sigma_f where :meth:`get_log_evidence` returns its maximum
+            value on the specified interval.
+        """
+        phi = self.get_phi()
+        A0 = self.get_A(sparse=False, sigma_f=0)
+        eye = np.identity(self.n_grid)
+
+        # Define a function of log(sigma_f) to pass to brentq.
+        def f(log_sigma_f):
+            ivar = np.exp(-2 * log_sigma_f)
+            A = A0 + ivar * eye
+            Ainv = np.linalg.inv(A)
+            return -self.n_grid + ivar * (
+                np.trace(Ainv) + phi.dot(Ainv.dot(Ainv.dot(phi))))
+
+        return np.exp(scipy.optimize.brentq(
+            f, np.log(sigma_f_min), np.log(sigma_f_max), xtol=rtol))
