@@ -292,13 +292,33 @@ class CoAdder(object):
         return self.phi_sum
 
     def get_A(self, sigma_f=0, sparse=False):
-        """Return the A matrix summary statistic conditioned with a prior.
+        """Return the symmetric A matrix summary statistic conditioned with a prior.
 
         Note that the returned matrix is almost certainly invertible when
         sigma_f > 0, except in the unlikely case that sigma_f equals one of the
         eigenvalues of A with sigma_f = 0.
 
         Returns a copy if sigma_f is nonzero or sparse is False.
+
+        When ``sparse`` is True, returns a :class:`CSR sparse matrix
+        <scipy.sparse.csr_matrix>`. However, since the matrix is symmetric, it
+        can be efficiently converted to :class:`CSC format
+        <scipy.sparse.csc_matrix>` by taking its transpose.
+
+        Parameters
+        ----------
+        sigma_f : float or array
+            Value(s) of the hyperparameter giving the RMS of the Gaussian flux
+            prior on the high-resolution internal grid.
+        sparse : bool
+            Return a CSR sparse matrix when True, otherwise return a dense
+            2D numpy array.
+
+        Returns
+        -------
+        array or sparse matrix
+            Symmetric N x N matrix as a dense array or a :class:`CSR sparse
+            matrix <scipy.sparse.csr_matrix>`.
         """
         if sigma_f < 0:
             raise ValueError('Expected sigma_f >= 0.')
@@ -311,6 +331,36 @@ class CoAdder(object):
             return csr
         else:
             return csr.toarray()
+
+    def get_f(self, sigma_f):
+        """Return the deconvolved coadd.
+
+        Results will generally be sensitive to the choice of prior
+        hyperparameter sigma_f since the deconvolution attempts to
+        reconstruct high-frequency information that has been erased from
+        the data by PSF convolution. Use :meth:`get_A` (with the same
+        ``sigma_f`` value) to obtain the corresponding inverse covariance
+        of the estimated true flux.
+
+        You should normally use :meth:`extract_downsampled` to minimize
+        sensitivity to the choice of hyperparameter.
+
+        Parameters
+        ----------
+        sigma_f : float or array
+            Value(s) of the hyperparameter giving the RMS of the Gaussian flux
+            prior on the high-resolution internal grid.
+
+        Returns
+        -------
+        array
+            1D array of N estimated true flux values.
+        """
+        phi = self.get_phi()
+        A = self.get_A(sigma_f, sparse=True)
+        # Convert CSR to CSC format before taking the inverse, for efficiency.
+        Ainv = scipy.sparse.linalg.inv(A.T)
+        return Ainv.dot(phi)
 
     def get_log_evidence(self, sigma_f):
         """Calculate the log of the evidence P(D|sigma_f).
@@ -392,3 +442,53 @@ class CoAdder(object):
 
         return np.exp(scipy.optimize.brentq(
             f, np.log(sigma_f_min), np.log(sigma_f_max), xtol=rtol))
+
+    def extract_downsampled(self, coefs, sigma_f):
+        """Extract a downsampled coadd.
+
+        The coefficients specify n arbitrary linear combinations of the
+        high-resolution true flux to extract, using a prior specified by
+        the hyperparameter sigma_f and marginalizing over the remaining
+        N-n degrees of freedom.
+
+        A suitably chosen set of coefficients can filter out high-frequency
+        components of the true flux that have not been measured due to
+        PSF convolution, yielding downsampled results that are insensitive
+        to the choice of prior hyperparameter sigma_f.
+
+        Parameters
+        ----------
+        coefs : array
+            2D array of shape (n, N) containing the coefficients to use
+            for each of the n downsampled values.
+        sigma_f : float
+            Value of the hyperparameter to use for the extraction.
+
+        Returns
+        -------
+        tuple
+            Tuple (mu, cov) specifying the multivariate Gaussian posterior
+            probability density, with mu a 1D array of length n and cov
+            a 2D postive-definite n x n array of covariances.
+        """
+        n, N = coefs.shape
+        if N != self.n_grid:
+            raise ValueError('Wrong number of columns in coefs array.')
+        if n > N:
+            raise ValueError('Specified coefs require an upsample.')
+        phi = self.get_phi()
+        A = self.get_A(sigma_f)
+        # Build a square change of parameters matrix that has the
+        # downsampling coeffients embedded.
+        K = np.identity(self.n_grid)
+        rows = np.argmax(coefs, axis=1)
+        K[rows] = coefs
+        Kinv = np.linalg.inv(K)
+        # Apply the prior to calculate the posterior.
+        # Perform the change of variables.
+        AKinv = A.dot(Kinv)
+        mu = np.linalg.inv(AKinv).dot(phi)
+        Cinv = Kinv.T.dot(AKinv)
+        C = np.linalg.inv(Cinv)
+        # Marginalize out nuisance parameters in k.
+        return mu[rows], C[np.ix_(rows, rows)]

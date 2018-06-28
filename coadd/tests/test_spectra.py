@@ -87,10 +87,27 @@ def test_get_A():
     assert np.array_equal(c.get_A(sigma_f=2), 0.25 * np.identity(c.n_grid))
     data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
     c.add(*data, 5)
-    assert np.allclose(np.trace(c.get_A()), 3.89099485)
-    assert np.linalg.slogdet(c.get_A())[1] == -np.inf
-    assert np.allclose(np.trace(c.get_A(sigma_f=1.1)), 170.006697)
-    assert np.allclose(np.linalg.slogdet(c.get_A(sigma_f=1.1))[1], -35.734250)
+    A = c.get_A()
+    assert np.all(A.T == A)
+    assert np.allclose(np.trace(A), 3.89099485)
+    assert np.linalg.slogdet(A)[1] == -np.inf
+    A = c.get_A(sigma_f=1.1)
+    assert np.all(A.T == A)
+    assert np.allclose(np.trace(A), 170.006697)
+    assert np.allclose(np.linalg.slogdet(A)[1], -35.734250)
+    A = c.get_A(sigma_f=0.5, sparse=True)
+    assert A.getformat() == 'csr'
+    assert A.T.getformat() == 'csc'
+
+
+def test_get_f():
+    """Test calculation of deconvolved true flux f.
+    """
+    c = CoAdder(100., 200., 0.5, 50.)
+    assert np.all(c.get_f(sigma_f=1) == 0)
+    data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
+    c.add(*data, 5)
+    assert np.allclose(np.sum(c.get_f(sigma_f=1)), 4.950472)
 
 
 def test_get_log_evidence():
@@ -109,3 +126,15 @@ def test_get_log_evidence():
         c.get_log_evidence(sigma_f=0)
     with pytest.raises(ValueError):
         c.get_log_evidence(sigma_f=[1, -1])
+
+
+def test_extract_downsampled():
+    """Test extraction of downsampled coadd.
+    """
+    c = CoAdder(100., 200., 0.5, 50.)
+    n = 10
+    sigma_f = 1.5
+    coefs = np.identity(c.n_grid)[:n]
+    mu, cov = c.extract_downsampled(coefs, sigma_f)
+    assert np.array_equal(mu, np.zeros(n))
+    assert np.array_equal(cov, sigma_f ** 2 * np.identity(n))
