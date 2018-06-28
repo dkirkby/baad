@@ -138,3 +138,20 @@ def test_extract_downsampled():
     mu, cov = c.extract_downsampled(coefs, sigma_f)
     assert np.array_equal(mu, np.zeros(n))
     assert np.array_equal(cov, sigma_f ** 2 * np.identity(n))
+
+
+def test_extract_pixels():
+    """Test extraction to downsampled pixels.
+    """
+    c = CoAdder(100., 200., 0.5, 50.)
+    size = 8
+    sigma_f = 1.5
+    edges, mu, cov = c.extract_pixels(size, sigma_f)
+    n = len(edges) - 1
+    assert mu.shape == (n,)
+    assert cov.shape == (n, n)
+    assert np.array_equal(cov.T, cov)
+    assert edges[0] == c.grid[0]
+    assert edges[-1] == c.grid[n * size]
+    assert np.array_equal(mu, np.zeros(n))
+    assert np.allclose(cov, sigma_f ** 2 * size * np.identity(n))

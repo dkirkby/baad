@@ -444,7 +444,7 @@ class CoAdder(object):
             f, np.log(sigma_f_min), np.log(sigma_f_max), xtol=rtol))
 
     def extract_downsampled(self, coefs, sigma_f):
-        """Extract a downsampled coadd.
+        """Extract downsampled values with a Bayesian prior.
 
         The coefficients specify n arbitrary linear combinations of the
         high-resolution true flux to extract, using a prior specified by
@@ -492,3 +492,39 @@ class CoAdder(object):
         C = np.linalg.inv(Cinv)
         # Marginalize out nuisance parameters in k.
         return mu[rows], C[np.ix_(rows, rows)]
+
+    def extract_pixels(self, size, sigma_f, plot=False):
+        """Extract downsampled pixels with a Bayesian prior.
+
+        Uses :meth:`extract_downsampled` using boxcar weights.
+
+        If length does not divide the grid evenly, the extraction will be
+        trimmed on the right-hand edge.
+
+        Parameters
+        ----------
+        size : int
+            Size of output pixels in high-resolution ``grid_scale`` units.
+            Must be > 0 and <= n_grid.
+        sigma_f : float
+            Value of the hyperparameter to use for the extraction.
+
+        Returns
+        -------
+        tuple
+            Tuple (edges, mu, cov) where edges is a 1D array of n+1 increasing
+            output pixel edges, mu is a 1D array of n output mean values, and
+            cov is a 2D n x n symmetric array of output covariances.
+        """
+        size = int(size)
+        if size <= 0 or size > self.n_grid:
+            raise ValueError('Expected size > 0 and <= n_grid.')
+        # Determine the edges of the extracted pixels.
+        n_extracted = int(np.floor(self.n_grid / size))
+        edges = self.grid[0] + np.arange(n_extracted + 1) * size * self.grid_scale
+        # Build an array of boxcar downsampling coefficients.
+        coefs = np.zeros((n_extracted, self.n_grid))
+        for i in range(n_extracted):
+            coefs[i, i * size: (i + 1) * size] = 1.
+        mu, cov = self.extract_downsampled(coefs, sigma_f)
+        return edges, mu, cov
