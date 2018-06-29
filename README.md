@@ -8,7 +8,7 @@ Combine individual observations of 1D or 2D data that satisfy the following cond
 
 Coaddition uses the sufficient summary statistics proposed in Kaiser 2004 "Addition of
 Images with Varying Seeing" (unpublished technical note) to efficiently accumulate
-the joint likelihood of all observations. Observations are then combined in Bayesian
+the joint likelihood of all observations. Observations are then combined in a Bayesian
 framework with a Gaussian prior having a single hyperparameter.  Methods are provided
 to calculate the data evidence as a function of this hyperparameter, and to support
 model optimization or averaging.
