@@ -342,8 +342,8 @@ class CoAdder(object):
         ``sigma_f`` value) to obtain the corresponding inverse covariance
         of the estimated true flux.
 
-        You should normally use :meth:`extract_downsampled` to minimize
-        sensitivity to the choice of hyperparameter.
+        You should normally use one of the ``extract_...`` methods
+        to minimize sensitivity to the choice of hyperparameter.
 
         Parameters
         ----------
@@ -454,7 +454,12 @@ class CoAdder(object):
         A suitably chosen set of coefficients can filter out high-frequency
         components of the true flux that have not been measured due to
         PSF convolution, yielding downsampled results that are insensitive
-        to the choice of prior hyperparameter sigma_f.
+        to the choice of prior hyperparameter ``sigma_f``.
+
+        The methods :meth:`extract_pixels` and :meth:`extract_gaussian` are
+        wrappers around this method to handle some common cases. As an
+        alternative, :meth:`extract_flatnoise` uses the data to calculate
+        an "optimal" PSF that decorrelates and flattens the noise.
 
         Parameters
         ----------
@@ -491,14 +496,21 @@ class CoAdder(object):
         Cinv = Kinv.T.dot(AKinv)
         C = np.linalg.inv(Cinv)
         # Marginalize out nuisance parameters in k.
-        return mu[rows], C[np.ix_(rows, rows)]
+        mu = mu[rows]
+        C = C[np.ix_(rows, rows)]
+        # Average any round-off errors to force C to be exactly symmetric.
+        assert np.allclose(C, C.T)
+        C = 0.5 * (C + C.T)
+        return mu, C
 
     def extract_pixels(self, size, sigma_f, plot=False):
         """Extract downsampled pixels with a Bayesian prior.
 
         Uses :meth:`extract_downsampled` using boxcar weights.
 
-        If length does not divide the grid evenly, the extraction will be
+        The returned covariance will generally not be diagonal.
+
+        If ``size`` does not divide the grid evenly, the extraction will be
         trimmed on the right-hand edge.
 
         Parameters
@@ -521,10 +533,95 @@ class CoAdder(object):
             raise ValueError('Expected size > 0 and <= n_grid.')
         # Determine the edges of the extracted pixels.
         n_extracted = int(np.floor(self.n_grid / size))
-        edges = self.grid[0] + np.arange(n_extracted + 1) * size * self.grid_scale
+        edges = (
+            self.grid[0] + size * self.grid_scale * np.arange(n_extracted + 1))
         # Build an array of boxcar downsampling coefficients.
         coefs = np.zeros((n_extracted, self.n_grid))
         for i in range(n_extracted):
             coefs[i, i * size: (i + 1) * size] = 1.
         mu, cov = self.extract_downsampled(coefs, sigma_f)
         return edges, mu, cov
+
+    def extract_gaussian(self, spacing, rms, sigma_f):
+        """Extract downsampled fluxes with a Gaussian PSF.
+
+        Estimate the posterior PDF of the true flux convolved with a
+        Gaussian PSF, sampled on an equally spaced grid. With ``rms`` chosen
+        large enough to erase high-frequency information that is not present
+        in the data (due to PSF convolution), the result should be insensitive
+        to the choice of hyperparameter ``sigma_f``.
+
+        The returned covariance will generally not be diagonal.
+
+        Uses :meth:`extract_downsampled` using boxcar weights.
+
+        If ``spacing`` does not divide the grid evenly, the extraction will be
+        trimmed on the right-hand edge.
+
+        Parameters
+        ----------
+        spacing : float
+            Spacing between extracted centers in wavelength units.
+        rms : float
+            RMS of Gaussian PSF to convolve with the estimated true flux.
+        sigma_f : float
+            Value of the hyperparameter to use for the extraction.
+
+        Returns
+        -------
+        tuple
+            Tuple (centers, mu, cov) where centers is a 1D array of n
+            increasing output centers, mu is a 1D array of n output mean
+            values, and cov is a 2D n x n symmetric array of output
+            covariances.
+        """
+        # Determine locations of the extracted centers.
+        n_extracted = int(np.floor((self.grid[-1] - self.grid[0]) / spacing))
+        centers = self.grid[0] + (np.arange(n_extracted) + 0.5) * spacing
+        # Build PSFs at each extracted center.
+        dx = self.grid - centers[:, np.newaxis]
+        coefs = spacing * np.exp(
+            -0.5 * (dx / rms) ** 2) / (np.sqrt(2 * np.pi) * rms)
+        mu, cov = self.extract_downsampled(coefs, sigma_f)
+        return centers, mu, cov
+
+    def extract_whitened(self, sigma_f):
+        """Estimate true flux convolved to have flat uncorrelated noise.
+
+        Calculate an effective PSF that, when convolved with the estimated
+        true flux, results in a covariance equal to the identiy matrix.
+
+        The effective PSF depends on the data accumulated so far and will
+        change as more data is added.
+
+        Parameters
+        ----------
+        sigma_f : float
+            Value of the hyperparameter to use for the extraction.
+
+        Returns
+        -------
+        tuple
+            Tuple (psfs, mu) where psfs is an NxN 2D array of PSFs
+            tabulated at each grid point and mu is a 1D array of N output
+            mean values, whose covariance is the NxN identity matrix.
+        """
+        phi = self.get_phi()
+        A = self.get_A(sigma_f)
+        # Calculate H as the matrix square-root of Ainv.
+        # TODO: implement using sparse linear algebra.
+        # TODO: remove assertion tests.
+        s, V = np.linalg.eigh(A)
+        assert np.all(s > 0)
+        S = np.diag(s)
+        assert np.allclose(V.dot(S.dot(V.T)), A)
+        assert np.allclose(V.T, np.linalg.inv(V))
+        H = V.dot(np.diag(s ** +0.5).dot(V.T))
+        Hinv = V.dot(np.diag(s ** -0.5).dot(V.T))
+        assert np.allclose(H.dot(Hinv), np.identity(self.n_grid))
+        assert np.allclose(Hinv.T, Hinv)
+        AHinv = A.dot(Hinv)
+        assert np.allclose(Hinv.T.dot(AHinv), np.identity(self.n_grid))
+        # Perform the change of parameters.
+        mu = np.linalg.inv(AHinv).dot(phi)
+        return H, mu

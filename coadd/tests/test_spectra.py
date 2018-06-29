@@ -155,3 +155,44 @@ def test_extract_pixels():
     assert edges[-1] == c.grid[n * size]
     assert np.array_equal(mu, np.zeros(n))
     assert np.allclose(cov, sigma_f ** 2 * size * np.identity(n))
+    data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
+    c.add(*data, 5)
+    edges, mu, cov = c.extract_pixels(size, sigma_f)
+    assert np.array_equal(cov.T, cov)
+    assert np.allclose(np.sum(mu), 5.7583230)
+    assert np.allclose(np.sum(np.diagonal(cov)), 414.52807)
+
+
+def test_extract_gaussian():
+    c = CoAdder(100., 200., 0.5, 50.)
+    size = 8
+    spacing = size * c.grid_scale
+    rms = spacing
+    sigma_f = 1.5
+    centers, mu, cov = c.extract_gaussian(spacing, rms, sigma_f)
+    n = len(centers)
+    assert mu.shape == (n,)
+    assert cov.shape == (n, n)
+    assert np.array_equal(cov.T, cov)
+    assert centers[0] == c.grid[0] + 0.5 * spacing
+    assert centers[-1] == centers[0] + (n - 1) * spacing
+    assert np.array_equal(mu, np.zeros(n))
+    data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
+    c.add(*data, 5)
+    centers, mu, cov = c.extract_gaussian(spacing, rms, sigma_f)
+    assert np.array_equal(cov.T, cov)
+    assert np.allclose(np.sum(mu), 5.7581933)
+    assert np.allclose(np.sum(np.diagonal(cov)), 96.95508)
+
+
+def test_extract_whitened():
+    c = CoAdder(100., 200., 0.5, 50.)
+    sigma_f = 1.5
+    psfs, mu = c.extract_whitened(sigma_f)
+    n = len(mu)
+    assert psfs.shape == (n, n)
+    assert np.array_equal(mu, np.zeros(n))
+    data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
+    c.add(*data, 5)
+    psfs, mu = c.extract_whitened(sigma_f)
+    assert np.allclose(np.sum(mu), 10.262560)
