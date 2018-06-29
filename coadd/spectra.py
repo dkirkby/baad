@@ -83,6 +83,9 @@ class CoAdder(object):
             sigma_clip=3.0, retval=False):
         """Add a single observation to the coadd.
 
+        An observation is defined by arbitrary pixel edges, per-pixel inverse
+        variances (which can zero for missing pixels), and a per-pixel PSF.
+
         Parameters
         ----------
         data : array
@@ -281,7 +284,10 @@ class CoAdder(object):
         return npixels, data, edges, ivar
 
     def get_phi(self):
-        """Return phi vector summary statistic.
+        """Return the phi vector summary statistic.
+
+        The arrays returned by :meth:`get_phi` and :meth:`get_A` capture all of
+        the information contained in the multi-exposure likelihood function.
 
         Returns
         -------
@@ -293,6 +299,9 @@ class CoAdder(object):
 
     def get_A(self, sigma_f=0, sparse=False):
         """Return the symmetric A matrix summary statistic conditioned with a prior.
+
+        The arrays returned by :meth:`get_phi` and :meth:`get_A` capture all of
+        the information contained in the multi-exposure likelihood function.
 
         Note that the returned matrix is almost certainly invertible when
         sigma_f > 0, except in the unlikely case that sigma_f equals one of the
