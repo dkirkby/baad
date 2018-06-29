@@ -3,8 +3,8 @@ from setuptools import setup
 setup(
     name='coadd',
     version='0.1',
-    description='Optimal Coaddition of Binned Data',
-    url='http://github.com/dkirkby/coadd',
+    description='Bayesian Addition of Astronomical Data',
+    url='http://github.com/dkirkby/baad',
     author='David Kirkby',
     author_email='dkirkby@uci.edu',
     license='BSD3',
