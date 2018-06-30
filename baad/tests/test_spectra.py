@@ -15,6 +15,16 @@ def test_ctor():
     assert np.all(c.A_sum.csr.toarray() == 0)
 
 
+def test_ctor_rounding():
+    """Test wlen_max rounding up.
+    """
+    c = CoAdd1D(100., 199.5, 1., 50.)
+    assert c.grid[0] == 100.
+    assert c.grid[-1] == 200.
+    assert c.grid_scale == 1.
+    assert c.n_grid == 101
+
+
 def test_add_psf():
     """Addition with different types of PSF inputs.
     """

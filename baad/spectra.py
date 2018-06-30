@@ -53,10 +53,11 @@ class CoAdd1D(object):
         wlen_hi : float
             High edge to use for the internal grid. Should be above the lowest
             value expected in data. Must be > wlen_lo. Units are arbitrary.
+            Will be rounded up to the nearest ``wlen_step`` boundary, if
+            necessary.
         wlen_step : float
-            Internal step size will rounded down from this value to uniformly
-            cover [wlen_lo, wlen_hi].  Should be ~5x the smallest expected
-            RMS dispersion.
+            Step size for the internal uniform grid covering the wavelength
+            range. Determines the discretization of PSF calculations.
         max_spread : float
             Maximum spread of true wavelengths contributing to a single pixel.
             Used to determine the sparse structure of internal arrays.
@@ -65,10 +66,10 @@ class CoAdd1D(object):
             raise ValueError('Expected wlen_lo < wlen_hi.')
         if wlen_step <= 0:
             raise ValueError('Expected wlen_step > 0.')
+        self.grid_scale = wlen_step
+        # Tabulate the internal grid centers.
         self.n_grid = int(np.ceil((wlen_hi - wlen_lo) / wlen_step)) + 1
-        # Calculate grid centers.
-        self.grid, self.grid_scale = np.linspace(
-            wlen_lo, wlen_hi, self.n_grid, retstep=True)
+        self.grid = wlen_lo + np.arange(self.n_grid) * self.grid_scale
         self.phi_sum = np.zeros(self.n_grid)
         self.n_spread = int(np.ceil(max_spread / wlen_step))
         self.A_sum = SparseAccumulator(self.n_grid, self.n_spread)
