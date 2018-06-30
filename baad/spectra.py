@@ -73,10 +73,18 @@ class SparseAccumulator(object):
         for i, b in enumerate(B):
             self.csr.data[col1[i]:col2[i]] += b
 
+    @property
+    def nbytes(self):
+        """Number of bytes used by internal numpy arrays.
+        """
+        return (self.csr.data.nbytes +
+                self.csr.indices.nbytes +
+                self.csr.indptr.nbytes)
+
 
 class CoAdd1D(object):
 
-    def __init__(self, wlen_lo, wlen_hi, wlen_step, max_spread):
+    def __init__(self, wlen_lo, wlen_hi, wlen_step, max_spread, dtype=np.float):
         """Initialize coadder for 1D binned data.
 
         Parameters
@@ -97,6 +105,8 @@ class CoAdd1D(object):
             assumed to be symmetric so that the maximum PSF support is twice
             this value. Used to determine the sparse structure of internal
             arrays.
+        dtype : numpy datatype
+            Datatype to use for accumulating summary statistics.
         """
         if wlen_lo >= wlen_hi:
             raise ValueError('Expected wlen_lo < wlen_hi.')
@@ -106,15 +116,21 @@ class CoAdd1D(object):
         # Tabulate the internal grid centers.
         self.n_grid = int(np.ceil((wlen_hi - wlen_lo) / wlen_step)) + 1
         self.grid = wlen_lo + np.arange(self.n_grid) * self.grid_scale
-        self.phi_sum = np.zeros(self.n_grid)
+        self.phi_sum = np.zeros(self.n_grid, dtype)
         self.n_spread = int(np.ceil(max_spread / wlen_step))
-        self.A_sum = SparseAccumulator(self.n_grid, self.n_spread)
+        self.A_sum = SparseAccumulator(self.n_grid, self.n_spread, dtype)
 
     def reset(self):
         """Reset this coadder to its initial state.
         """
         self.phi_sum[:] = 0.
         self.A_sum.reset()
+
+    @property
+    def nbytes(self):
+        """Number of bytes used by internal numpy arrays.
+        """
+        return self.phi_sum.nbytes + self.A_sum.nbytes + self.grid.nbytes
 
     def add(self, data, edges, ivar, psf, convolve_with_pixel=True,
             sigma_clip=3.0, retval=False):

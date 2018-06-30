@@ -13,6 +13,7 @@ def test_ctor():
     assert c.grid_scale == 1.
     assert np.all(c.phi_sum == 0)
     assert np.all(c.A_sum.csr.toarray() == 0)
+    assert c.nbytes == 93836
 
 
 def test_ctor_rounding():
