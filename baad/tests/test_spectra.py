@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 
-from coadd.spectra import CoAdder
+from baad.spectra import CoAdder
 
 
 def test_ctor():
@@ -129,7 +129,7 @@ def test_get_log_evidence():
 
 
 def test_extract_downsampled():
-    """Test extraction of downsampled coadd.
+    """Test extraction of downsampled baad.
     """
     c = CoAdder(100., 200., 0.5, 50.)
     n = 10

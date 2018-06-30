@@ -1,6 +1,6 @@
 import numpy as np
 
-from coadd.utils import *
+from baad.utils import *
 
 
 def test_edges_pow():

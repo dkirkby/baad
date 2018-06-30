@@ -81,7 +81,7 @@ class CoAdder(object):
 
     def add(self, data, edges, ivar, psf, convolve_with_pixel=True,
             sigma_clip=3.0, retval=False):
-        """Add a single observation to the coadd.
+        """Add a single observation to the baad.
 
         An observation is defined by arbitrary pixel edges, per-pixel inverse
         variances (which can zero for missing pixels), and a per-pixel PSF.
@@ -94,7 +94,7 @@ class CoAdder(object):
             Array of N+1 increasing pixels edges for this observation.
             The first and last edges must be inset enough for the maximum
             dispersion. If you only know pixel centers, you can use
-            func:`coadd.utils.centers_to_edges` to estimate pixel edges.
+            func:`baad.utils.centers_to_edges` to estimate pixel edges.
         ivar : array or float
             Array of N inverse variances for this observation's data. Must
             all be >= 0. Covariances between pixels are assumed to be zero.
@@ -122,7 +122,7 @@ class CoAdder(object):
             Ignored when the input PSF is tabulated.
         retval : bool
             Returns a tuple of arrays (support, phi, A) that summarize this
-            observation's contribution to the coadd.
+            observation's contribution to the baad.
 
         Returns
         -------
@@ -342,7 +342,7 @@ class CoAdder(object):
             return csr.toarray()
 
     def get_f(self, sigma_f):
-        """Return the deconvolved coadd.
+        """Return the deconvolved baad.
 
         Results will generally be sensitive to the choice of prior
         hyperparameter sigma_f since the deconvolution attempts to
