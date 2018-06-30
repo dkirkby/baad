@@ -8,8 +8,28 @@ import scipy.optimize
 
 
 class SparseAccumulator(object):
-
+    """Sparse matrix representation with fixed sparsity structure.
+    """
     def __init__(self, N, M, dtype=np.float):
+        """Initialize a sparse NxN matrix with M nonzero diagonals.
+
+        >>> SA = SparseAccumulator(6, 2, int)
+        >>> SA.csr.data[:] = 1
+        >>> print(SA.csr.toarray())
+        [[1 1 1 0 0 0]
+         [1 1 1 1 0 0]
+         [1 1 1 1 1 0]
+         [0 1 1 1 1 1]
+         [0 0 1 1 1 1]
+         [0 0 0 1 1 1]]
+
+        Parameters
+        ----------
+        N : int
+            Dimensions of square matrix.
+        M : int
+            Number of non-zero diagonals above and below the main diagonal.
+        """
         nsparse = N ** 2 - (N - M - 1) * (N - M)
         if nsparse <= 0:
             raise ValueError('Invalid sparse shape parameters.')
@@ -29,9 +49,23 @@ class SparseAccumulator(object):
         self.csr = scipy.sparse.csr_matrix((data, indices, indptr), (N, N))
 
     def reset(self):
+        """Reset any accumulated non-sparse values to zero.
+        """
         self.csr.data[:] = 0
 
     def add(self, B, offset):
+        """Add the submatrix B at the specified offset.
+
+        >>> SA = SparseAccumulator(6, 2, int)
+        >>> SA.add(np.ones((2, 3), int), 1)
+        >>> print(SA.csr.toarray())
+        [[0 0 0 0 0 0]
+         [0 1 1 1 0 0]
+         [0 1 1 1 0 0]
+         [0 0 0 0 0 0]
+         [0 0 0 0 0 0]
+         [0 0 0 0 0 0]]
+        """
         nrow, ncol = B.shape
         idx = self.csr.indptr[offset:offset + nrow]
         col1 = idx - self.csr.indices[idx] + offset
@@ -59,8 +93,10 @@ class CoAdd1D(object):
             Step size for the internal uniform grid covering the wavelength
             range. Determines the discretization of PSF calculations.
         max_spread : float
-            Maximum spread of true wavelengths contributing to a single pixel.
-            Used to determine the sparse structure of internal arrays.
+            Maximum spread of true wavelengths contributing to a single pixel,
+            assumed to be symmetric so that the maximum PSF support is twice
+            this value. Used to determine the sparse structure of internal
+            arrays.
         """
         if wlen_lo >= wlen_hi:
             raise ValueError('Expected wlen_lo < wlen_hi.')
