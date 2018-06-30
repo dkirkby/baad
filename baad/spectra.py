@@ -1,4 +1,4 @@
-"""Optimal coaddition of 1D binned data.
+"""Combine observations of 1D data.
 """
 import numpy as np
 
@@ -40,7 +40,7 @@ class SparseAccumulator(object):
             self.csr.data[col1[i]:col2[i]] += b
 
 
-class CoAdder(object):
+class CoAdd1D(object):
 
     def __init__(self, wlen_lo, wlen_hi, wlen_step, max_spread):
         """Initialize coadder for 1D binned data.

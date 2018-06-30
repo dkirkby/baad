@@ -1,13 +1,13 @@
 import pytest
 import numpy as np
 
-from baad.spectra import CoAdder
+from baad.spectra import CoAdd1D
 
 
 def test_ctor():
     """Normal construction.
     """
-    c = CoAdder(100., 200., 1., 50.)
+    c = CoAdd1D(100., 200., 1., 50.)
     assert c.grid[0] == 100.
     assert c.grid[-1] == 200.
     assert c.grid_scale == 1.
@@ -18,7 +18,7 @@ def test_ctor():
 def test_add_psf():
     """Addition with different types of PSF inputs.
     """
-    c = CoAdder(100., 200., 0.5, 50.)
+    c = CoAdd1D(100., 200., 0.5, 50.)
     psf = np.zeros(21)
     psf[10] = 1
     psfs = np.tile(psf, [3, 1])
@@ -33,7 +33,7 @@ def test_add_psf():
 def test_reset():
     """Reset after adding.
     """
-    c = CoAdder(100., 200., 0.5, 50.)
+    c = CoAdd1D(100., 200., 0.5, 50.)
     psf = np.zeros(21)
     psf[10] = 1
     data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
@@ -48,7 +48,7 @@ def test_reset():
 def test_add_analytic_vs_tabulated():
     """Compare analytic vs tabulated Gaussian PSFs.
     """
-    c = CoAdder(100., 200., 0.5, 50.)
+    c = CoAdd1D(100., 200., 0.5, 50.)
     data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
     psf_grid = c.grid_scale * np.arange(-10, +11)
     for convolve in True, False:
@@ -69,7 +69,7 @@ def test_add_analytic_vs_tabulated():
 def test_get_phi():
     """Test calculation of phi vector summary statistic.
     """
-    c = CoAdder(100., 200., 0.5, 50.)
+    c = CoAdd1D(100., 200., 0.5, 50.)
     assert np.all(c.get_phi() == 0)
     data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
     c.add(*data, 5)
@@ -80,7 +80,7 @@ def test_get_phi():
 def test_get_A():
     """Test calculation of A matrix summary statistic.
     """
-    c = CoAdder(100., 200., 0.5, 50.)
+    c = CoAdd1D(100., 200., 0.5, 50.)
     assert np.all(c.get_A() == 0)
     assert np.array_equal(
         c.get_A(sparse=True).toarray(), c.get_A(sparse=False))
@@ -103,7 +103,7 @@ def test_get_A():
 def test_get_f():
     """Test calculation of deconvolved true flux f.
     """
-    c = CoAdder(100., 200., 0.5, 50.)
+    c = CoAdd1D(100., 200., 0.5, 50.)
     assert np.all(c.get_f(sigma_f=1) == 0)
     data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
     c.add(*data, 5)
@@ -113,7 +113,7 @@ def test_get_f():
 def test_get_log_evidence():
     """Test calculation of log evidence.
     """
-    c = CoAdder(100., 200., 0.5, 50.)
+    c = CoAdd1D(100., 200., 0.5, 50.)
     assert c.get_log_evidence(sigma_f=1) == 0
     data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
     c.add(*data, 5)
@@ -131,7 +131,7 @@ def test_get_log_evidence():
 def test_extract_downsampled():
     """Test extraction of downsampled baad.
     """
-    c = CoAdder(100., 200., 0.5, 50.)
+    c = CoAdd1D(100., 200., 0.5, 50.)
     n = 10
     sigma_f = 1.5
     coefs = np.identity(c.n_grid)[:n]
@@ -143,7 +143,7 @@ def test_extract_downsampled():
 def test_extract_pixels():
     """Test extraction to downsampled pixels.
     """
-    c = CoAdder(100., 200., 0.5, 50.)
+    c = CoAdd1D(100., 200., 0.5, 50.)
     size = 8
     sigma_f = 1.5
     edges, mu, cov = c.extract_pixels(size, sigma_f)
@@ -164,7 +164,7 @@ def test_extract_pixels():
 
 
 def test_extract_gaussian():
-    c = CoAdder(100., 200., 0.5, 50.)
+    c = CoAdd1D(100., 200., 0.5, 50.)
     size = 8
     spacing = size * c.grid_scale
     rms = spacing
@@ -186,7 +186,7 @@ def test_extract_gaussian():
 
 
 def test_extract_whitened():
-    c = CoAdder(100., 200., 0.5, 50.)
+    c = CoAdd1D(100., 200., 0.5, 50.)
     sigma_f = 1.5
     psfs, mu = c.extract_whitened(sigma_f)
     n = len(mu)
