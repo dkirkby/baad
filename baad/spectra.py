@@ -84,7 +84,8 @@ class SparseAccumulator(object):
 
 class CoAdd1D(object):
 
-    def __init__(self, wlen_lo, wlen_hi, wlen_step, max_spread, dtype=np.float):
+    def __init__(self, wlen_lo, wlen_hi, wlen_step, max_spread,
+                 dtype=np.float):
         """Initialize coadder for 1D binned data.
 
         Parameters
@@ -132,9 +133,33 @@ class CoAdd1D(object):
         """
         return self.phi_sum.nbytes + self.A_sum.nbytes + self.grid.nbytes
 
+    def tabulate(self, psf_model, wlen):
+        """Tabulate a PSF model on our internal grid.
+
+        Parameters
+        ----------
+        psf_model : callable
+            Function of (wlen, dwlen) that broadcasts over input arrays and
+            returns the relative contribution of true wlen+dwlen to observed
+            wlen. The absolute normalization of the returned values can be
+            arbitrary.
+        wlen : float or array
+            Observed wavelength(s) where the PSF should be tabulated, normally
+            corresponding to one or more pixel centers.
+
+        Returns
+        -------
+        array
+            2D array with shape (len(wlen), 2 * n_spread + 1) containing the
+            (un-normalized) tabulated PSF.
+        """
+        wlen = np.asarray(wlen)
+        dwlen = self.grid_scale * np.arange(-self.n_spread, self.n_spread + 1)
+        return dwlen, psf_model(wlen.reshape(-1, 1), dwlen)
+
     def add(self, data, edges, ivar, psf, convolve_with_pixel=True,
-            sigma_clip=3.0, retval=False):
-        """Add a single observation to the baad.
+            sigma_clip=3.0, auto_clip=False, retval=False):
+        """Add a single observation to our accumulated summary statistics.
 
         An observation is defined by arbitrary pixel edges, per-pixel inverse
         variances (which can zero for missing pixels), and a per-pixel PSF.
@@ -153,7 +178,7 @@ class CoAdd1D(object):
             all be >= 0. Covariances between pixels are assumed to be zero.
             A single float value is assumed to apply to all pixels.
         psf : float or array
-            The dispersion at each pixel center can be specified four different
+            The dispersion at each pixel center can be specified five different
             ways:
               - A single Gaussian RMS value in wlen units that applies
               to all pixels.
@@ -163,6 +188,8 @@ class CoAdd1D(object):
               pixels.
               - A 2D array of shape (N, 2n+1) with per-pixel dispersions
               tabulated on the same grid.
+              - A function of (wlen, dwlen) used to tabulate the PSF using
+              :meth:`tabulate`.
             PSF normalization is handled automatically. A tabulated PSF must
             must be non-negative and RMS values must all be positive.
         convolve_with_pixel : bool
@@ -173,6 +200,10 @@ class CoAdd1D(object):
         sigma_clip : float
             Number of sigmas to use to truncate Gaussian PSFs specified by RMS.
             Ignored when the input PSF is tabulated.
+        auto_clip : bool
+            Automatically clip a tabulated PSF (after pixel convolution) if
+            it extends beyond ``max_spread``.  Otherwise, raise a ValueError
+            when this occurs.  Ignored unless input PSF is tabulated.
         retval : bool
             Returns a tuple of arrays (support, phi, A) that summarize this
             observation's contribution to the baad.
@@ -190,21 +221,25 @@ class CoAdd1D(object):
         """
         npixels, data, edges, ivar = self.check_data(data, edges, ivar)
 
+        # Find the closest grid indices to each pixel midpoint.
+        mid = 0.5 * (edges[1:] + edges[:-1])
+        mid_idx = np.searchsorted(self.grid, mid - 0.5 * self.grid_scale)
+        assert np.all(np.abs(
+            self.grid[mid_idx] - mid) <= (0.5 + 1e-8) * self.grid_scale)
         if convolve_with_pixel:
             # Find the closest grid indices to each edge.
             edge_idx = np.searchsorted(
                 self.grid, edges - 0.5 * self.grid_scale)
             assert np.all(np.abs(
                 self.grid[edge_idx] - edges) <= (0.5 + 1e-8) * self.grid_scale)
-        else:
-            # Find the closest grid indices to each pixel midpoint.
-            mid = 0.5 * (edges[1:] + edges[:-1])
-            mid_idx = np.searchsorted(self.grid, mid - 0.5 * self.grid_scale)
-            assert np.all(np.abs(
-                self.grid[mid_idx] - mid) <= (0.5 + 1e-8) * self.grid_scale)
 
         # Calculate the (un-normalized) support of each pixel.
-        psf = np.atleast_1d(psf)
+        if callable(psf):
+            _, psf = self.tabulate(psf, mid)
+            assert psf.shape == (npixels, 2 * self.n_spread + 1)
+            auto_clip = True
+        else:
+            psf = np.atleast_1d(psf)
         supports = []
         if len(psf.shape) == 1 and len(psf) in (1, npixels):
             # psf specifies either a single RMS or per-pixel RMS values.
@@ -267,11 +302,22 @@ class CoAdd1D(object):
                     assert len(supports[-1] == ihi[i] - ilo[i])
 
         # Check that no pixels spread beyond our sparse cutoff.
-        if np.any(ihi - ilo > 2 * self.n_spread + 1):
-            raise ValueError(
-                'Dispersed pixel spread {:.1f} exceed maximum spread {:.1f}.'
-                .format(self.grid_scale * np.max(ihi - ilo),
-                        self.grid_scale * self.n_spread))
+        max_support = 2 * self.n_spread + 1
+        if np.any(ihi - ilo > max_support):
+            if auto_clip:
+                nclip = (ihi - ilo - max_support) // 2
+                for i in np.where(nclip > 0)[0]:
+                    supports[i] = supports[i][nclip[i]:-nclip[i]]
+                    ilo[i] += nclip[i]
+                    ihi[i] -= nclip[i]
+                assert np.all(ihi - ilo <= max_support)
+            else:
+                raise ValueError(
+                    'Dispersed pixel spread {:.1f} '
+                    'exceeds maximum spread {:.1f} '
+                    'and auto_clip is False.'
+                    .format(self.grid_scale * np.max(ihi - ilo),
+                            self.grid_scale * self.n_spread))
 
         # Normalize each pixel's support in place.
         norm = (edges[1:] - edges[:-1]) / self.grid_scale

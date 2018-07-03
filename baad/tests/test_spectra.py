@@ -29,16 +29,21 @@ def test_ctor_rounding():
 def test_add_psf():
     """Addition with different types of PSF inputs.
     """
-    c = CoAdd1D(100., 200., 0.5, 50.)
+    c = CoAdd1D(100., 240., 0.5, 50.)
     psf = np.zeros(21)
     psf[10] = 1
     psfs = np.tile(psf, [3, 1])
     data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
+
+    def psf_model(w, dw):
+        return np.exp(-dw ** 2) + 0 * w
+
     for convolve in True, False:
         c.add(*data, 5, convolve)
         c.add(*data, [4, 5, 6], convolve)
         c.add(*data, psf, convolve)
         c.add(*data, psfs, convolve)
+        c.add(*data, psf_model, convolve)
 
 
 def test_reset():
