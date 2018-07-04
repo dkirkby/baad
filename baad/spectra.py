@@ -305,11 +305,14 @@ class CoAdd1D(object):
         max_support = 2 * self.n_spread + 1
         if np.any(ihi - ilo > max_support):
             if auto_clip:
-                nclip = (ihi - ilo - max_support) // 2
+                nclip = ihi - ilo - max_support
                 for i in np.where(nclip > 0)[0]:
-                    supports[i] = supports[i][nclip[i]:-nclip[i]]
-                    ilo[i] += nclip[i]
-                    ihi[i] -= nclip[i]
+                    dlo = mid_idx[i] - extent - ilo[i]
+                    dhi = ihi[i] - mid_idx[i] - extent - 1
+                    assert dlo + dhi == nclip[i]
+                    supports[i] = supports[i][dlo:-dhi]
+                    ilo[i] += dlo
+                    ihi[i] -= dhi
                 assert np.all(ihi - ilo <= max_support)
             else:
                 raise ValueError(
@@ -611,7 +614,7 @@ class CoAdd1D(object):
         C = 0.5 * (C + C.T)
         return mu, C
 
-    def extract_pixels(self, size, sigma_f, plot=False):
+    def extract_pixels(self, size, sigma_f):
         """Extract downsampled pixels with a Bayesian prior.
 
         Uses :meth:`extract_downsampled` using boxcar weights.
