@@ -3,7 +3,7 @@
 Combine individual observations of 1D or 2D binned data that satisfy the following conditions:
  - Each observation views the same static source.
  - Each observation is convolved with a known (possibly varying) point-spread function.
- - Observed data is accumulated into bins (pixels) with known edges.
+ - Observed data is accumulated into bins (pixels) with known edges on a regular (not necessarily uniform) grid.
  - Statistical uncertainties in bin values are well described by a known Gaussian
    inverse covariance matrix (not necessarily diagonal).
  - Missing or bad data is flagged with zero inverse variance.

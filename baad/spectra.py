@@ -46,7 +46,8 @@ class CoAdd1D(object):
         self.grid = wlen_lo + np.arange(self.n_grid) * self.grid_scale
         self.phi_sum = np.zeros(self.n_grid, dtype)
         self.n_spread = int(np.ceil(max_spread / wlen_step))
-        self.A_sum = baad.sparse.SparseAccumulator(self.n_grid, self.n_spread, dtype)
+        self.A_sum = baad.sparse.SparseAccumulator(
+            self.n_grid, self.n_spread, dtype)
 
     def reset(self):
         """Reset this coadder to its initial state.
