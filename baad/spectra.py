@@ -6,80 +6,7 @@ import scipy.special
 import scipy.sparse
 import scipy.optimize
 
-
-class SparseAccumulator(object):
-    """Sparse matrix representation with fixed sparsity structure.
-    """
-    def __init__(self, N, M, dtype=np.float):
-        """Initialize a sparse NxN matrix with M nonzero diagonals.
-
-        >>> SA = SparseAccumulator(6, 2, int)
-        >>> SA.csr.data[:] = 1
-        >>> print(SA.csr.toarray())
-        [[1 1 1 0 0 0]
-         [1 1 1 1 0 0]
-         [1 1 1 1 1 0]
-         [0 1 1 1 1 1]
-         [0 0 1 1 1 1]
-         [0 0 0 1 1 1]]
-
-        Parameters
-        ----------
-        N : int
-            Dimensions of square matrix.
-        M : int
-            Number of non-zero diagonals above and below the main diagonal.
-        """
-        nsparse = N ** 2 - (N - M - 1) * (N - M)
-        if nsparse <= 0:
-            raise ValueError('Invalid sparse shape parameters.')
-        data = np.zeros(nsparse, dtype)
-        diag = np.arange(N, dtype=np.int)
-        lo = np.maximum(0, diag - M)
-        hi = np.minimum(N, diag + M + 1)
-        indptr = np.empty(N + 1, np.int)
-        indptr[0] = 0
-        indptr[1:] = np.cumsum(hi - lo)
-        assert indptr[-1] == nsparse
-        assert indptr[1] == M + 1
-        indices = np.empty(nsparse, np.int)
-        for i in range(N):
-            indices[indptr[i]:indptr[i + 1]] = np.arange(
-                lo[i], hi[i], dtype=int)
-        self.csr = scipy.sparse.csr_matrix((data, indices, indptr), (N, N))
-
-    def reset(self):
-        """Reset any accumulated non-sparse values to zero.
-        """
-        self.csr.data[:] = 0
-
-    def add(self, B, offset):
-        """Add the submatrix B at the specified offset.
-
-        >>> SA = SparseAccumulator(6, 2, int)
-        >>> SA.add(np.ones((2, 3), int), 1)
-        >>> print(SA.csr.toarray())
-        [[0 0 0 0 0 0]
-         [0 1 1 1 0 0]
-         [0 1 1 1 0 0]
-         [0 0 0 0 0 0]
-         [0 0 0 0 0 0]
-         [0 0 0 0 0 0]]
-        """
-        nrow, ncol = B.shape
-        idx = self.csr.indptr[offset:offset + nrow]
-        col1 = idx - self.csr.indices[idx] + offset
-        col2 = col1 + ncol
-        for i, b in enumerate(B):
-            self.csr.data[col1[i]:col2[i]] += b
-
-    @property
-    def nbytes(self):
-        """Number of bytes used by internal numpy arrays.
-        """
-        return (self.csr.data.nbytes +
-                self.csr.indices.nbytes +
-                self.csr.indptr.nbytes)
+import baad.sparse
 
 
 class CoAdd1D(object):
@@ -119,7 +46,7 @@ class CoAdd1D(object):
         self.grid = wlen_lo + np.arange(self.n_grid) * self.grid_scale
         self.phi_sum = np.zeros(self.n_grid, dtype)
         self.n_spread = int(np.ceil(max_spread / wlen_step))
-        self.A_sum = SparseAccumulator(self.n_grid, self.n_spread, dtype)
+        self.A_sum = baad.sparse.SparseAccumulator(self.n_grid, self.n_spread, dtype)
 
     def reset(self):
         """Reset this coadder to its initial state.
@@ -330,18 +257,18 @@ class CoAdd1D(object):
         if retval:
             # Initialize arrays to return.
             phi = np.zeros_like(self.phi_sum)
-            A = SparseAccumulator(self.n_grid, self.n_spread)
+            A = baad.sparse.SparseAccumulator(self.n_grid, self.n_spread)
             iptr = np.empty(npixels + 1, int)
             iptr[0] = 0
             iptr[1:] = np.cumsum(ihi - ilo)
             nsparse = iptr[-1]
-            sparse = np.concatenate(supports)
-            assert sparse.shape == (nsparse,)
+            sparse_data = np.concatenate(supports)
+            assert sparse_data.shape == (nsparse,)
             idx = np.empty(nsparse, int)
             for i in range(npixels):
                 idx[iptr[i]:iptr[i + 1]] = np.arange(ilo[i], ihi[i], dtype=int)
             support = scipy.sparse.csr_matrix(
-                (sparse, idx, iptr), (npixels, self.n_grid))
+                (sparse_data, idx, iptr), (npixels, self.n_grid))
             '''
             # Check sparse against dense...
             gp = np.zeros((npixels, self.n_grid))
@@ -610,7 +537,6 @@ class CoAdd1D(object):
         mu = mu[rows]
         C = C[np.ix_(rows, rows)]
         # Average any round-off errors to force C to be exactly symmetric.
-        assert np.allclose(C, C.T)
         C = 0.5 * (C + C.T)
         return mu, C
 
@@ -646,7 +572,6 @@ class CoAdd1D(object):
         n_extracted = int(np.floor(self.n_grid / size))
         edges = (
             self.grid[0] + size * self.grid_scale * np.arange(n_extracted + 1))
-        # Build an array of boxcar downsampling coefficients.
         coefs = np.zeros((n_extracted, self.n_grid))
         for i in range(n_extracted):
             coefs[i, i * size: (i + 1) * size] = 1.
