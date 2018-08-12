@@ -78,3 +78,86 @@ class SparseAccumulator(object):
         return (self.csr.data.nbytes +
                 self.csr.indices.nbytes +
                 self.csr.indptr.nbytes)
+
+
+def get_Kinv(H, k=None):
+    """Calculate the inverse of a matrix K that embeds H invertibly.
+
+    The matrix K is an N x N identity matrix with row k[p] replaced
+    with row p of H.  By default, use k[p] = argmax(H[p,:]) but
+    different row assignments can be specified.
+
+    >>> H = scipy.sparse.csr_matrix(np.array([
+    ...     [1., 1., 0., 0., 0.],
+    ...     [0., 0., 1., 1., 0.]]))
+    >>> Kinv, k = get_Kinv(H)
+    >>> Kinv.toarray()
+    array([[ 1., -1.,  0.,  0.,  0.],
+           [ 0.,  1.,  0.,  0.,  0.],
+           [ 0.,  0.,  1., -1.,  0.],
+           [ 0.,  0.,  0.,  1.,  0.],
+           [ 0.,  0.,  0.,  0.,  1.]])
+    >>> k
+    array([0, 2])
+    >>> K = np.linalg.inv(Kinv.toarray())
+    >>> assert np.array_equal(K[k], H.toarray())
+
+    The calculation uses the block matrix inverse formula:
+
+      Kinv = [[H1inv, -H1inv.H2], [0, 1]]
+
+    for K = [[H1, H2], [0, 1]] without actually permuting the rows and
+    columns of K and performing all matrix operations with sparse
+    methods.
+
+    This algorithm is optimized for the case where H1inv is sparse
+    since it uses sparse matrix inversion of H1.
+
+    Parameters
+    ----------
+    H : scipy.sparse.csr_matrix
+        CSR sparse matrix of shape (P, N) that transforms true fluxes to
+        downsampled output quantities.
+    k : array or None
+        1D array of length P with row assignments to use, or None to have these
+        calculated automatically as k[p] = argmax(H[p,:]).
+
+    Returns
+    -------
+    tuple
+        Tuple (Kinv, k) where Kinv is the inverse of K in LIL sparse format and
+        k is a 1D integer array of length P giving the values k[p].
+
+    Raises
+    ------
+    RuntimeError
+        H1 is not invertible.
+    """
+    P, N = H.shape
+    if k is None:
+        k = np.empty(P, dtype=int)
+        for p in range(P):
+            sl = slice(H.indptr[p], H.indptr[p + 1])
+            # Determine the index k[p] where this row p of H will appear in K.
+            k[p] = H.indices[sl][np.argmax(H.data[sl])]
+    else:
+        k = np.asarray(k)
+        if k.shape != (P,):
+            raise ValueError('Invalid row assignment array.')
+    # Create the sparse H1 in CSC format.
+    H1 = H[:, k].tocsc()
+    # Calculate its inverse, also in CSC format.
+    H1inv = scipy.sparse.linalg.inv(H1)
+    mask = np.ones(N, dtype=bool)
+    mask[k] = False
+    # Create the sparse H2 in CSR format.
+    H2 = H[:, mask]
+    H1invH2 = H1inv.dot(H2)
+    # Initialize Kinv as the NxN identity matrix in LIL format.
+    Kinv = scipy.sparse.identity(N, format='lil')
+    # Embed H1inv into Kinv[k, k].
+    Kinv[np.ix_(k, k)] = H1inv
+    # Embed -H1inv.H2 into the remaining columns of Kinv[k].
+    Kinv[np.ix_(k, mask)] = -H1invH2
+
+    return Kinv, k
