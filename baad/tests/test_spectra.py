@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+import scipy.sparse
 
 from baad.spectra import CoAdd1D
 
@@ -97,17 +98,17 @@ def test_get_A():
     """Test calculation of A matrix summary statistic.
     """
     c = CoAdd1D(100., 200., 0.5, 50.)
-    assert np.all(c.get_A() == 0)
+    assert np.all(c.get_A(sparse=False) == 0)
     assert np.array_equal(
         c.get_A(sparse=True).toarray(), c.get_A(sparse=False))
-    assert np.array_equal(c.get_A(sigma_f=2), 0.25 * np.identity(c.n_grid))
+    assert np.array_equal(c.get_A(sigma_f=2, sparse=False), 0.25 * np.identity(c.n_grid))
     data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
     c.add(*data, 5)
-    A = c.get_A()
+    A = c.get_A(sparse=True).toarray()
     assert np.all(A.T == A)
     assert np.allclose(np.trace(A), 3.89099485)
     assert np.linalg.slogdet(A)[1] == -np.inf
-    A = c.get_A(sigma_f=1.1)
+    A = c.get_A(sigma_f=1.1, sparse=False)
     assert np.all(A.T == A)
     assert np.allclose(np.trace(A), 170.006697)
     assert np.allclose(np.linalg.slogdet(A)[1], -35.734250)
@@ -150,10 +151,10 @@ def test_extract_downsampled():
     c = CoAdd1D(100., 200., 0.5, 50.)
     n = 10
     sigma_f = 1.5
-    coefs = np.identity(c.n_grid)[:n]
-    mu, cov = c.extract_downsampled(coefs, sigma_f)
+    coefs = scipy.sparse.identity(c.n_grid, format='csr')[:n]
+    mu, cov = c.extract_downsampled(coefs, sigma_f, return_cov=True)
     assert np.array_equal(mu, np.zeros(n))
-    assert np.array_equal(cov, sigma_f ** 2 * np.identity(n))
+    assert np.array_equal(cov.toarray(), sigma_f ** 2 * np.identity(n))
 
 
 def test_extract_pixels():
@@ -162,10 +163,14 @@ def test_extract_pixels():
     c = CoAdd1D(100., 200., 0.5, 50.)
     size = 8
     sigma_f = 1.5
-    edges, mu, cov = c.extract_pixels(size, sigma_f)
+    edges, mu, cov = c.extract_pixels(size, sigma_f, return_cov=True)
+    edges2, mu2 = c.extract_pixels(size, sigma_f, return_cov=False)
+    assert np.array_equal(edges, edges2)
+    assert np.array_equal(mu, mu2)
     n = len(edges) - 1
     assert mu.shape == (n,)
     assert cov.shape == (n, n)
+    cov = cov.toarray()
     assert np.array_equal(cov.T, cov)
     assert edges[0] == c.grid[0]
     assert edges[-1] == c.grid[n * size]
@@ -173,7 +178,8 @@ def test_extract_pixels():
     assert np.allclose(cov, sigma_f ** 2 * size * np.identity(n))
     data = [1, 3, 2], [150, 160, 170, 180], [0.1, 0.2, 0.1]
     c.add(*data, 5)
-    edges, mu, cov = c.extract_pixels(size, sigma_f)
+    edges, mu, cov = c.extract_pixels(size, sigma_f, return_cov=True)
+    cov = cov.toarray()
     assert np.array_equal(cov.T, cov)
     assert np.allclose(np.sum(mu), 5.7583230)
     assert np.allclose(np.sum(np.diagonal(cov)), 414.52807)
