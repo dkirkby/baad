@@ -542,14 +542,14 @@ class CoAdd1D(object):
         # Marginalize out nuisance parameters.
         mu = mu[k]
         if not return_cov:
-            return mu
+            return (mu,)
         # Find covariance C as the solution to AKinv.C = Kt
         C = scipy.sparse.linalg.spsolve(AKinv, Kt)
         # Marginalize out nuisance paramters.
         C = C[np.ix_(k, k)]
         # Average any round-off errors to force C to be exactly symmetric.
         C = 0.5 * (C + C.T)
-        return mu, C
+        return (mu, C)
 
     def extract_pixels(self, size, sigma_f, return_cov=False):
         """Extract downsampled pixels with a Bayesian prior.
@@ -590,8 +590,9 @@ class CoAdd1D(object):
         data = np.ones(nnz)
         indices = np.arange(nnz, dtype=int)
         indptr = size * np.arange(n_extracted + 1, dtype=int)
-        H = scipy.sparse.csr_matrix((data, indices, indptr), shape=(n_extracted, n_grid))
-        return (edges,) + self.extract_downsampled(coefs, sigma_f, return_cov)
+        H = scipy.sparse.csr_matrix(
+            (data, indices, indptr), shape=(n_extracted, self.n_grid))
+        return (edges,) + self.extract_downsampled(H, sigma_f, return_cov)
 
     def extract_gaussian(self, spacing, rms, sigma_f):
         """Extract downsampled fluxes with a Gaussian PSF.

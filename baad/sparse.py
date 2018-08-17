@@ -1,5 +1,7 @@
 """Sparse algebra utilities.
 """
+import warnings
+
 import numpy as np
 
 import scipy.sparse
