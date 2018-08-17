@@ -80,17 +80,17 @@ class SparseAccumulator(object):
                 self.csr.indptr.nbytes)
 
 
-def get_Kinv(H, k=None):
-    """Calculate the inverse of a matrix K that embeds H invertibly.
+def get_embedded(H, k=None):
+    """Embed a rectangular downsampling matrix into an invertible matrix.
 
-    The matrix K is an N x N identity matrix with row k[p] replaced
-    with row p of H.  By default, use k[p] = argmax(H[p,:]) but
+    The invertible matrix K is an N x N identity matrix with row k[p]
+    replaced with row p of H.  By default, use k[p] = argmax(H[p,:]) but
     different row assignments can be specified.
 
     >>> H = scipy.sparse.csr_matrix(np.array([
     ...     [1., 1., 0., 0., 0.],
     ...     [0., 0., 1., 1., 0.]]))
-    >>> Kinv, k = get_Kinv(H)
+    >>> Kinv, Kt, k = get_embedded(H)
     >>> Kinv.toarray()
     array([[ 1., -1.,  0.,  0.,  0.],
            [ 0.,  1.,  0.,  0.,  0.],
@@ -101,6 +101,7 @@ def get_Kinv(H, k=None):
     array([0, 2])
     >>> K = np.linalg.inv(Kinv.toarray())
     >>> assert np.array_equal(K[k], H.toarray())
+    >>> assert np.array_equal(Kt.toarray(), K.T)
 
     The calculation uses the block matrix inverse formula:
 
@@ -125,8 +126,9 @@ def get_Kinv(H, k=None):
     Returns
     -------
     tuple
-        Tuple (Kinv, k) where Kinv is the inverse of K in LIL sparse format and
-        k is a 1D integer array of length P giving the values k[p].
+        Tuple (Kinv, Kt, k) where Kinv is the inverse of K in LIL sparse format,
+        Kt is its transpose in CSC format and k is a 1D integer array of length
+        P giving the values k[p].
 
     Raises
     ------
@@ -159,5 +161,13 @@ def get_Kinv(H, k=None):
     Kinv[np.ix_(k, k)] = H1inv
     # Embed -H1inv.H2 into the remaining columns of Kinv[k].
     Kinv[np.ix_(k, mask)] = -H1invH2
+    # Initialize K as the NxN identity matrix in CSR format.
+    K = scipy.sparse.identity(N, format='csr')
+    # Embed H into Kt. This generates a warning that changing CSR
+    # sparsity structure is expensive, which we ignore since it
+    # is faster than using the recommended LIL format.
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=scipy.sparse.SparseEfficiencyWarning)
+        K[k] = H
 
-    return Kinv, k
+    return Kinv, K.T, k

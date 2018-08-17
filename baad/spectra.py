@@ -48,12 +48,14 @@ class CoAdd1D(object):
         self.n_spread = int(np.ceil(max_spread / wlen_step))
         self.A_sum = baad.sparse.SparseAccumulator(
             self.n_grid, self.n_spread, dtype)
+        self.nadded = 0
 
     def reset(self):
         """Reset this coadder to its initial state.
         """
         self.phi_sum[:] = 0.
         self.A_sum.reset()
+        self.nadded = 0
 
     @property
     def nbytes(self):
@@ -291,6 +293,8 @@ class CoAdd1D(object):
                 A.add(dA, ilo[i])
             self.A_sum.add(dA, ilo[i])
 
+        self.nadded += 1
+
         if retval:
             return support, phi, A
 
@@ -327,7 +331,7 @@ class CoAdd1D(object):
         """
         return self.phi_sum
 
-    def get_A(self, sigma_f=0, sparse=False):
+    def get_A(self, sigma_f=0, sparse=True):
         """Return the symmetric A matrix summary statistic conditioned with a prior.
 
         The arrays returned by :meth:`get_phi` and :meth:`get_A` capture all of
@@ -430,7 +434,7 @@ class CoAdd1D(object):
             Value(s) of the log evidence corresponding to each input sigma_f.
         """
         phi = self.get_phi()
-        A0 = self.get_A(sparse=False, sigma_f=0)
+        A0 = self.get_A(sigma_f=0, sparse=False)
         scalar = np.asarray(sigma_f).shape == ()
         sigma_f = np.atleast_1d(sigma_f).astype(float)
         if np.any(sigma_f <= 0):
@@ -468,7 +472,7 @@ class CoAdd1D(object):
             value on the specified interval.
         """
         phi = self.get_phi()
-        A0 = self.get_A(sparse=False, sigma_f=0)
+        A0 = self.get_A(sigma_f=0, sparse=False)
         eye = np.identity(self.n_grid)
 
         # Define a function of log(sigma_f) to pass to brentq.
@@ -482,13 +486,13 @@ class CoAdd1D(object):
         return np.exp(scipy.optimize.brentq(
             f, np.log(sigma_f_min), np.log(sigma_f_max), xtol=rtol))
 
-    def extract_downsampled(self, coefs, sigma_f):
+    def extract_downsampled(self, H, sigma_f, return_cov):
         """Extract downsampled values with a Bayesian prior.
 
-        The coefficients specify n arbitrary linear combinations of the
-        high-resolution true flux to extract, using a prior specified by
-        the hyperparameter sigma_f and marginalizing over the remaining
-        N-n degrees of freedom.
+        The coefficient matrix H specifies P arbitrary linear combinations
+        of the high-resolution true flux to extract, using a prior specified
+        by the hyperparameter ``sigma_f`` and marginalizing over the remaining
+        N-P degrees of freedom.
 
         A suitably chosen set of coefficients can filter out high-frequency
         components of the true flux that have not been measured due to
@@ -502,46 +506,52 @@ class CoAdd1D(object):
 
         Parameters
         ----------
-        coefs : array
-            2D array of shape (n, N) containing the coefficients to use
-            for each of the n downsampled values.
+        H : scipy.sparse.csr_matrix
+            CSR sparse matrix of shape (P, N) that transforms true fluxes to
+            downsampled output quantities.
         sigma_f : float
             Value of the hyperparameter to use for the extraction.
+        return_cov : bool
+            Return both the mean and covariance of the downsampled variables
+            when True.  Otherwise, return only the mean, which will usually
+            be significantly faster.
 
         Returns
         -------
-        tuple
-            Tuple (mu, cov) specifying the multivariate Gaussian posterior
-            probability density, with mu a 1D array of length n and cov
-            a 2D postive-definite n x n array of covariances.
+        array or tuple
+            When ``return_cov`` is True, return a tuple (mu, cov) that
+            specifies the multivariate Gaussian posterior probability density,
+            with mu a 1D array of length P and cov a 2D postive-definite P x P
+            array of covariances.  When ``return_cov`` is False, return only
+            the array mu.
         """
-        n, N = coefs.shape
+        P, N = H.shape
         if N != self.n_grid:
-            raise ValueError('Wrong number of columns in coefs array.')
-        if n > N:
-            raise ValueError('Specified coefs require an upsample.')
+            raise ValueError('Wrong number of columns in coefficient matrix H.')
+        if P > N:
+            raise ValueError('Specified coefficient matrix H requires an upsample.')
+        # Extract the summary statistics.
         phi = self.get_phi()
-        A = self.get_A(sigma_f)
-        # Build a square change of parameters matrix that has the
-        # downsampling coeffients embedded.
-        K = np.identity(self.n_grid)
-        rows = np.argmax(coefs, axis=1)
-        K[rows] = coefs
-        Kinv = np.linalg.inv(K)
-        # Apply the prior to calculate the posterior.
-        # Perform the change of variables.
-        AKinv = A.dot(Kinv)
-        mu = np.linalg.inv(AKinv).dot(phi)
-        Cinv = Kinv.T.dot(AKinv)
-        C = np.linalg.inv(Cinv)
-        # Marginalize out nuisance parameters in k.
-        mu = mu[rows]
-        C = C[np.ix_(rows, rows)]
+        A = self.get_A(sigma_f, sparse=True)
+        # Embed H into an invertible matrix K.
+        Kinv, Kt, k = baad.sparse.get_embedded(H)
+        # Combine A and Kinv.
+        AKinv = A.dot(Kinv).tocsc()
+        # Find mu as the solution to AKinv.mu = phi
+        mu = scipy.sparse.linalg.spsolve(AKinv, phi)
+        # Marginalize out nuisance parameters.
+        mu = mu[k]
+        if not return_cov:
+            return mu
+        # Find covariance C as the solution to AKinv.C = Kt
+        C = scipy.sparse.linalg.spsolve(AKinv, Kt)
+        # Marginalize out nuisance paramters.
+        C = C[np.ix_(k, k)]
         # Average any round-off errors to force C to be exactly symmetric.
         C = 0.5 * (C + C.T)
         return mu, C
 
-    def extract_pixels(self, size, sigma_f):
+    def extract_pixels(self, size, sigma_f, return_cov=False):
         """Extract downsampled pixels with a Bayesian prior.
 
         Uses :meth:`extract_downsampled` using boxcar weights.
@@ -558,26 +568,30 @@ class CoAdd1D(object):
             Must be > 0 and <= n_grid.
         sigma_f : float
             Value of the hyperparameter to use for the extraction.
+        return_cov : bool
+            Calculate and return the covariance.
 
         Returns
         -------
         tuple
             Tuple (edges, mu, cov) where edges is a 1D array of n+1 increasing
             output pixel edges, mu is a 1D array of n output mean values, and
-            cov is a 2D n x n symmetric array of output covariances.
+            cov is a 2D n x n symmetric array of output covariances. If
+            return_cov is False, then only return (edges, mu).
         """
         size = int(size)
         if size <= 0 or size > self.n_grid:
             raise ValueError('Expected size > 0 and <= n_grid.')
-        # Determine the edges of the extracted pixels.
         n_extracted = int(np.floor(self.n_grid / size))
         edges = (
             self.grid[0] + size * self.grid_scale * np.arange(n_extracted + 1))
-        coefs = np.zeros((n_extracted, self.n_grid))
-        for i in range(n_extracted):
-            coefs[i, i * size: (i + 1) * size] = 1.
-        mu, cov = self.extract_downsampled(coefs, sigma_f)
-        return edges, mu, cov
+        # Create a CSR sparse matrix H of pixel downsampling coefficients.
+        nnz = n_extracted * size
+        data = np.ones(nnz)
+        indices = np.arange(nnz, dtype=int)
+        indptr = size * np.arange(n_extracted + 1, dtype=int)
+        H = scipy.sparse.csr_matrix((data, indices, indptr), shape=(n_extracted, n_grid))
+        return (edges,) + self.extract_downsampled(coefs, sigma_f, return_cov)
 
     def extract_gaussian(self, spacing, rms, sigma_f):
         """Extract downsampled fluxes with a Gaussian PSF.
@@ -644,7 +658,7 @@ class CoAdd1D(object):
             mean values, whose covariance is the NxN identity matrix.
         """
         phi = self.get_phi()
-        A = self.get_A(sigma_f)
+        A = self.get_A(sigma_f, sparse=True)
         # Calculate H as the matrix square-root of Ainv.
         # TODO: implement using sparse linear algebra.
         # TODO: remove assertion tests.
